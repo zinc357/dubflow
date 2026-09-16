@@ -3,12 +3,16 @@ import { api, DownloadsSnapshot, EngineSettings, ENGINE_URL, Health, Job } from 
 import { STEP_LABELS } from "../labels";
 import { loadFormPrefs, saveFormPrefs } from "../prefs";
 import DirPicker from "../components/DirPicker";
+import FilePicker from "../components/FilePicker";
 import Tooltip from "../components/Tooltip";
 
 // 可用模型随后端不同：mlx 只有 Apple Silicon 才有，ctranslate2 用于 Windows/Linux
 // （NVIDIA CUDA 或 CPU 兜底）。这些键名必须与引擎 downloads.CATALOG 完全一致，
 // 否则会出现「模型下载好了，引擎却找不到、转而去 HuggingFace 重下一遍」。
 const MLX_MODELS = ["tiny", "medium", "large-v3", "large-v3-turbo", "large-v3-turbo-q4"];
+
+
+const GGML_MODELS = ["ggml-tiny", "ggml-base", "ggml-small", "ggml-large-v3-turbo-q5_0"];
 const CT2_MODELS = [
   "faster-whisper-tiny",
   "faster-whisper-base",
@@ -31,7 +35,12 @@ interface Props {
 }
 
 export default function HomeView({ jobs, onOpenJob, health }: Props) {
-  const modelList = isAppleBackend(health) ? MLX_MODELS : CT2_MODELS;
+  const backendName = health?.backend?.name;
+  const modelList = isAppleBackend(health)
+    ? MLX_MODELS
+    : backendName === "whisper.cpp"
+    ? GGML_MODELS
+    : CT2_MODELS;
   // 上次用过的界面选项（浏览器本地）。翻译配置不放这里，由引擎侧保管。
   const [savedPrefs] = useState(loadFormPrefs);
   // new-task form
@@ -57,6 +66,7 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
   const [embedVideo, setEmbedVideo] = useState(savedPrefs.embedVideo ?? false);
   const [outputDir, setOutputDir] = useState(savedPrefs.outputDir ?? "");
   const [pickDir, setPickDir] = useState(false);
+  const [pickFile, setPickFile] = useState(false);
   const [formError, setFormError] = useState("");
   const [dl, setDl] = useState<DownloadsSnapshot | null>(null);
 
@@ -211,12 +221,25 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
           >
             <input
               type="text"
-              placeholder="视频绝对路径，如 C:\Users\me\Videos\demo.mp4"
+              placeholder="视频绝对路径，也可点右侧按钮选择"
               value={videoPath}
               onChange={(e) => setVideoPath(e.target.value)}
             />
+            <button style={{ padding: "4px 12px" }} onClick={() => setPickFile(true)}>
+              📂 选择
+            </button>
           </Tooltip>
         </div>
+        {pickFile && (
+          <FilePicker
+            initialPath={videoPath ? videoPath.replace(/[/\\][^/\\]*$/, "") : undefined}
+            onPick={(p) => {
+              setVideoPath(p);
+              setPickFile(false);
+            }}
+            onClose={() => setPickFile(false)}
+          />
+        )}
         <div className="row" style={{ marginTop: 10 }}>
           <Tooltip text="视频里的说话语言。不确定就保持「自动检测」，模型判断得很准。" side="bottom">
             <label className="muted">源语言</label>

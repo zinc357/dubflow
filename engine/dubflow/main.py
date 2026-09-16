@@ -331,6 +331,58 @@ async def list_dirs(path: str = "") -> dict:
     }
 
 
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".wmv", ".flv", ".ts"}
+
+
+@app.get("/fs/browse")
+async def browse_fs(path: str = "", kind: str = "video") -> dict:
+    """列出目录下的子目录与视频文件，供 GUI 的「选择视频文件」使用。
+
+    与 /fs/dirs 相同的安全模型：枚举在引擎侧完成，路径由服务端产生。
+    kind=video 时附带视频扩展名的文件列表。
+    """
+    raw = (path or "").strip().strip('"')
+    if raw:
+        base = Path(raw).expanduser()
+        if not base.is_dir():
+            raise HTTPException(status_code=400, detail=f"不是有效目录: {raw}")
+    else:
+        base = Path.home()
+    base = base.resolve()
+
+    dirs = []
+    files = []
+    try:
+        children = sorted(base.iterdir(), key=lambda p: p.name.lower())
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"没有权限读取: {base}")
+
+    for child in children:
+        if child.name.startswith("."):
+            continue
+        try:
+            if child.is_dir():
+                dirs.append({"name": child.name, "path": str(child)})
+            elif kind == "video" and child.suffix.lower() in VIDEO_EXTS:
+                files.append({"name": child.name, "path": str(child),
+                              "size_mb": round(child.stat().st_size / 1e6, 1)})
+        except OSError:
+            continue
+
+    parent = base.parent if base.parent != base else None
+    drives = []
+    if sys.platform == "win32":
+        drives = [f"{c}:{os.sep}" for c in string.ascii_uppercase if Path(f"{c}:{os.sep}").exists()]
+
+    return {
+        "path": str(base),
+        "parent": str(parent) if parent else None,
+        "dirs": dirs,
+        "files": files,
+        "drives": drives,
+    }
+
+
 @app.get("/downloads")
 async def downloads() -> dict:
     return downloads_snapshot()

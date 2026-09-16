@@ -125,3 +125,12 @@ button.sm { padding: 3px 10px; font-size: 12px; }
 .dirrow:last-child { border-bottom: 0; }
 .dirrow:hover { background: rgba(79, 140, 255, .12); }
 .diritem { word-break: break-all; }
+
+.dir-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 0;
+  word-break: break-all;
+}

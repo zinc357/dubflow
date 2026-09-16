@@ -95,6 +95,9 @@ def describe_backend() -> dict:
     if _whisper_cpp_available():
         return {"name": "whisper.cpp", "device": "vulkan",
                 "detail": "AMD/Intel GPU via whisper.cpp Vulkan (auto CPU fallback)"}
+    if _whisper_cpp_available():
+        return {"name": "whisper.cpp", "device": "vulkan",
+                "detail": "AMD/Intel GPU via whisper.cpp Vulkan (auto CPU fallback)"}
     if _faster_whisper_available():
         return {"name": "faster-whisper", "device": "cpu", "detail": "CPU int8 fallback (non-mac)"}
     return {"name": "none", "device": "none", "detail": "no ASR backend installed"}
@@ -143,6 +146,9 @@ def select_provider(model_size: Optional[str] = None,
         return FasterWhisperProvider(device="cuda", compute_type="float16")
     # TODO(platform-amd): Vulkan 路线未在真实 A 卡上验证（Windows/Linux 均可尝试，
     # whisper.cpp Vulkan 构建在无 Vulkan 设备时自动回退 CPU，可安全尝试）
+    if _whisper_cpp_available():
+        from .cpp_provider import WhisperCppProvider
+        return WhisperCppProvider(backend="vulkan")
     if _whisper_cpp_available():
         from .cpp_provider import WhisperCppProvider
         return WhisperCppProvider(backend="vulkan")

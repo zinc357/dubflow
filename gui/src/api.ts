@@ -77,6 +77,20 @@ export interface DirEntry {
   writable: boolean;
 }
 
+export interface FileEntry {
+  name: string;
+  path: string;
+  size_mb: number;
+}
+
+export interface BrowseResult {
+  path: string;
+  parent: string | null;
+  dirs: { name: string; path: string }[];
+  files: FileEntry[];
+  drives: string[];
+}
+
 export interface DirListing {
   path: string;
   parent: string | null;
@@ -172,6 +186,11 @@ export const api = {
   cancelJob: (id: string) => req<{ ok: boolean }>("POST", `/jobs/${id}/cancel`),
   listDirs: (path?: string) =>
     req<DirListing>("GET", `/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  browse: (path?: string, kind: string = "video") =>
+    req<BrowseResult>(
+      "GET",
+      `/fs/browse?kind=${encodeURIComponent(kind)}${path ? `&path=${encodeURIComponent(path)}` : ""}`
+    ),
   getSettings: () => req<EngineSettings>("GET", "/settings"),
   putSettings: (payload: {
     llm?: { base_url?: string; model?: string; api_key?: string };
