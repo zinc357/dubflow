@@ -36,9 +36,13 @@ def binary_path() -> Optional[Path]:
         bin_dir = Path(sys.executable).resolve().parent
     else:
         bin_dir = Path(__file__).resolve().parents[3] / "bin"
+    data_bin = Path(settings.models_dir).parent / "bin" / f"whisper-cli-{plat}{ext}"
+    if data_bin.is_file():
+        return str(data_bin)
     cand = bin_dir / f"whisper-cli-{plat}{ext}"
     if cand.is_file():
-        return cand
+        return str(cand)
+    return None
     which = shutil.which("whisper-cli")
     return Path(which) if which else None
 

@@ -84,6 +84,37 @@ jobs:
           name: engine-${{ matrix.target }}
           path: engine/dist/dubflow-engine*
 
+  whispercpp:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          curl.exe -L -o vk_installer.exe "https://sdk.lunarg.com/sdk/download/1.3.296.0/windows/VulkanSDK-1.3.296.0-Installer.exe"
+          .\vk_installer.exe /S
+          Start-Sleep -Seconds 20
+          echo "VULKAN_SDK=C:\VulkanSDK\1.3.296.0" >> $env:GITHUB_ENV
+
+      - name: Build whisper-cli (Vulkan, static)
+        shell: pwsh
+        run: |
+          cmake -S . -B build -DGGML_VULKAN=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake --build build --config Release --target whisper-cli
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/bin/Release/whisper-cli.exe `
+            -DestinationPath whispercpp-vulkan-win32-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whispercpp-vulkan-win32-x86_64
+          path: whispercpp-vulkan-win32-x86_64.zip
+
   gui:
     needs: engine
     strategy:
@@ -146,7 +177,7 @@ jobs:
           path: gui/src-tauri/target/release/bundle/**
 
   publish:
-    needs: [engine, gui]
+    needs: [engine, gui, whispercpp]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -154,13 +185,19 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: whispercpp-vulkan-win32-x86_64
+          path: dist
+
       - name: Collect installers
         shell: bash
         run: |
           mkdir -p release
           find dist -type f \
             \( -name "*.dmg" -o -name "*-setup.exe" -o -name "*.msi" \
-               -o -name "*.deb" -o -name "*.AppImage" -o -name "*.rpm" \) \
+               -o -name "*.deb" -o -name "*.AppImage" -o -name "*.rpm" \
+               -o -name "whispercpp-*.zip" \) \
             -exec cp {} release/ \;
           ls -la release
       - name: Attach to GitHub Release

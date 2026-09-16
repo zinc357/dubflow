@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+from .config import settings
+
 
 class FFmpegError(RuntimeError):
     pass
@@ -42,11 +44,12 @@ def bundled_candidates(binary: str) -> List[Path]:
     else:
         bin_dir = Path(__file__).resolve().parents[2] / "bin"
     names = [
-        f"{binary}-{plat_tag()}{ext}",
-        f"{binary}-{sys.platform}-{platform.machine()}{ext}",
-        f"{binary}{ext}",
+        bin_dir / f"{binary}-{plat_tag()}{ext}",
+        bin_dir / f"{binary}-{sys.platform}-{platform.machine()}{ext}",
+        settings.data_dir / "bin" / f"{binary}{ext}",
+        bin_dir / f"{binary}{ext}",
     ]
-    return [bin_dir / n for n in dict.fromkeys(names)]   # 去重且保持顺序
+    return list(dict.fromkeys(names))   # 去重且保持顺序
 
 
 def bundled(binary: str) -> "Path | None":

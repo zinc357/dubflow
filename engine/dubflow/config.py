@@ -143,7 +143,11 @@ if getattr(sys, "frozen", False):
     _BIN_DIR = Path(sys.executable).resolve().parent
 else:
     _BIN_DIR = Path(__file__).resolve().parents[2] / "bin"
-os.environ["PATH"] = f"{_BIN_DIR}{os.pathsep}" + os.environ.get("PATH", "")
+_DATA_BIN = settings.data_dir / "bin"
+os.environ["PATH"] = (
+    f"{_BIN_DIR}{os.pathsep}{_DATA_BIN}{os.pathsep}"
+    + os.environ.get("PATH", "")
+)
 # huggingface_hub reads this at import time; keep CN-friendly default,
 # override with HF_ENDPOINT=https://huggingface.co if you prefer.
 os.environ.setdefault("HF_ENDPOINT", settings.hf_endpoint)
