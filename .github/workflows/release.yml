@@ -121,8 +121,15 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Recurse -Filter whisper-cli.exe build | Select-Object -First 1
-          if (-not $exe) { throw "whisper-cli.exe not found in build tree" }
+          $exe = Get-ChildItem -Path . -Recurse -Filter whisper-cli.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch "node_modules" } | Select-Object -First 1
+          if (-not $exe) {
+            Write-Host "== whisper-cli.exe NOT found; all exe files: =="
+            Get-ChildItem -Path . -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+              Select-Object -First 30 | ForEach-Object { Write-Host $_.FullName }
+            throw "whisper-cli.exe not found"
+          }
+          Write-Host "found: $($exe.FullName)"
           Compress-Archive -Path $exe.FullName -DestinationPath whispercpp-vulkan-win32-x86_64.zip
       - uses: actions/upload-artifact@v4
         with:
