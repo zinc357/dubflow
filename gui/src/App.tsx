@@ -11,11 +11,16 @@ export default function App() {
   const [view, setView] = useState<View>({ name: "home" });
 
   useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null));
+    const checkHealth = () => api.health().then(setHealth).catch(() => setHealth(null));
+    checkHealth();
+    const th = window.setInterval(checkHealth, 2000); // 引擎由壳拉起，轮询等待其就绪
     const t = window.setInterval(() => {
       api.listJobs().then((r) => setJobs(r.jobs)).catch(() => {});
     }, 1000);
-    return () => window.clearInterval(t);
+    return () => {
+      window.clearInterval(t);
+      window.clearInterval(th);
+    };
   }, []);
 
   const openJob = (id: string) => setView({ name: "workbench", jobId: id });

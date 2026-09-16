@@ -36,7 +36,11 @@ def bundled_candidates(binary: str) -> List[Path]:
     和去标签的通用名，避免旧版本下载的文件被误判为「未安装」。
     """
     ext = ".exe" if sys.platform == "win32" else ""
-    bin_dir = Path(__file__).resolve().parents[2] / "bin"
+    if getattr(sys, "frozen", False):
+        # PyInstaller onefile/onedir: 二进制与引擎可执行文件同目录
+        bin_dir = Path(sys.executable).resolve().parent
+    else:
+        bin_dir = Path(__file__).resolve().parents[2] / "bin"
     names = [
         f"{binary}-{plat_tag()}{ext}",
         f"{binary}-{sys.platform}-{platform.machine()}{ext}",

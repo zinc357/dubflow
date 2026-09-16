@@ -22,7 +22,18 @@ def _mlx_available() -> bool:
     if _mlx_probe is None:
         if sys.platform != "darwin" or platform.machine() != "arm64":
             _mlx_probe = False
+        elif getattr(sys, "frozen", False):
+            # PyInstaller 包内：依赖已在打包时收集，直接导入即可。
+            # 不能走子进程探测 —— sys.executable 此时是引擎自身。
+            try:
+                import mlx.core  # noqa: F401
+                _mlx_probe = True
+            except Exception:  # pragma: no cover
+                _mlx_probe = False
+                log.warning("mlx import failed inside frozen app")
         else:
+            # 开发/源码环境：import mlx 可能在无 GPU 的受限环境硬崩溃
+            # （原生 NSException，try/except 接不住），用子进程隔离探测。
             try:
                 import subprocess
                 r = subprocess.run(

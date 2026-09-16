@@ -30,7 +30,11 @@ def binary_path() -> Optional[Path]:
     """Bundled bin/whisper-cli-<platform> first, then system whisper-cli."""
     plat = f"{sys.platform}-{platform.machine()}"
     ext = ".exe" if sys.platform == "win32" else ""
-    cand = Path(__file__).resolve().parents[2] / "bin" / f"whisper-cli-{plat}{ext}"
+    if getattr(sys, "frozen", False):
+        bin_dir = Path(sys.executable).resolve().parent
+    else:
+        bin_dir = Path(__file__).resolve().parents[3] / "bin"
+    cand = bin_dir / f"whisper-cli-{plat}{ext}"
     if cand.is_file():
         return cand
     which = shutil.which("whisper-cli")

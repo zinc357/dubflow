@@ -58,7 +58,26 @@ jobs:
             --hidden-import uvicorn.protocols.websockets.auto \
             --hidden-import uvicorn.lifespan.on \
             run_engine.py
-        continue-on-error: true
+
+      - name: Smoke test engine binary
+        working-directory: engine
+        shell: bash
+        run: |
+          BIN="dist/dubflow-engine"
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN="dist/dubflow-engine.exe"; fi
+          DUBFLOW_PORT=8799 "$BIN" > engine-smoke.log 2>&1 &
+          ENGINE_PID=$!
+          OK=0
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8799/health > /dev/null 2>&1; then OK=1; break; fi
+            sleep 1
+          done
+          if [ "$OK" != "1" ]; then
+            echo "ENGINE SMOKE TEST FAILED:"; tail -30 engine-smoke.log
+            exit 1
+          fi
+          curl -s http://127.0.0.1:8799/health
+          kill $ENGINE_PID 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:

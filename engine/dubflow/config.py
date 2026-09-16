@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -138,7 +139,10 @@ settings.models_dir.mkdir(parents=True, exist_ok=True)
 
 # Prefer project-bundled ffmpeg/ffprobe (bin/) everywhere in the engine process,
 # including third-party libs that shell out to bare "ffmpeg" (e.g. mlx_whisper).
-_BIN_DIR = Path(__file__).resolve().parents[2] / "bin"
+if getattr(sys, "frozen", False):
+    _BIN_DIR = Path(sys.executable).resolve().parent
+else:
+    _BIN_DIR = Path(__file__).resolve().parents[2] / "bin"
 os.environ["PATH"] = f"{_BIN_DIR}{os.pathsep}" + os.environ.get("PATH", "")
 # huggingface_hub reads this at import time; keep CN-friendly default,
 # override with HF_ENDPOINT=https://huggingface.co if you prefer.
