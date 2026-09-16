@@ -28,7 +28,9 @@ DEFAULT_MODEL = "ggml-tiny"
 
 def binary_path() -> Optional[Path]:
     """Bundled bin/whisper-cli-<platform> first, then system whisper-cli."""
-    plat = f"{sys.platform}-{platform.machine()}"
+    machine = platform.machine().lower()
+    machine = {"amd64": "x86_64", "x64": "x86_64", "aarch64": "arm64"}.get(machine, machine)
+    plat = f"{sys.platform}-{machine}"
     ext = ".exe" if sys.platform == "win32" else ""
     if getattr(sys, "frozen", False):
         bin_dir = Path(sys.executable).resolve().parent

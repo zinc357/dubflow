@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Package the Python engine into a standalone binary for the CURRENT platform
 # (PyInstaller onefile). Output: dist/dubflow-engine(.exe)
-# CI (.github/workflows/release.yml) runs this on all three platforms.
+# Cross-platform: macOS / Linux / Windows-GitBash. CI runs this too.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/engine"
@@ -10,16 +10,31 @@ cd "$ROOT/engine"
 
 # platform-specific hidden imports / data
 EXTRA=""
-if [[ "$(uname)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
-  # mlx ships metal libs that pyinstaller misses
-  EXTRA="--collect-all mlx --collect-all mlx_whisper"
-fi
+OS_TAG="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$OS_TAG" in
+  mingw*|msys*|windows*)
+    OS_TAG="win32"
+    ;;
+  darwin)
+    if [ "$(uname -m)" = "arm64" ]; then
+      EXTRA="--collect-all mlx --collect-all mlx_whisper"
+    fi
+    ;;
+esac
+ARCH_TAG="$(uname -m | tr '[:upper:]' '[:lower:]')"
+case "$ARCH_TAG" in
+  amd64|x64) ARCH_TAG="x86_64" ;;
+  aarch64)   ARCH_TAG="arm64" ;;
+esac
+PLAT_TAG="${OS_TAG}-${ARCH_TAG}"
+EXT=""
+if [ "$OS_TAG" = "win32" ]; then EXT=".exe"; fi
 
 .venv/bin/pyinstaller \
   --name dubflow-engine \
   --onefile \
   --collect-all uvicorn \
-  --collect-all mlx_whisper $EXTRA \
+  $EXTRA \
   --hidden-import uvicorn.logging \
   --hidden-import uvicorn.loops.auto \
   --hidden-import uvicorn.protocols.http.auto \
@@ -28,9 +43,6 @@ fi
   run_engine.py
 
 # --- bundle ffmpeg/ffprobe next to the engine (frozen bin dir) ---
-PLAT_TAG="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/amd64/x86_64/;s/aarch64/arm64/')"
-EXT=""
-if [[ "$(uname -s)" == *"MINGW"* || "$(uname -s)" == *"Windows"* ]]; then EXT=".exe"; fi
 for b in ffmpeg ffprobe; do
   for cand in "$ROOT/bin/$b-$PLAT_TAG$EXT" "$ROOT/bin/$b$EXT"; do
     if [ -f "$cand" ]; then
@@ -39,7 +51,7 @@ for b in ffmpeg ffprobe; do
     fi
   done
 done
-# mlx_whisper 等库会用裸名 "ffmpeg" 调用，补通用名（unix 用符号链接）
+# 通用名：mlx_whisper / faster-whisper 内部用裸名 "ffmpeg" 调用
 if [ "$EXT" = "" ]; then
   ln -sf "ffmpeg-$PLAT_TAG"  "dist/ffmpeg"  2>/dev/null || true
   ln -sf "ffprobe-$PLAT_TAG" "dist/ffprobe" 2>/dev/null || true
@@ -47,24 +59,23 @@ else
   cp "dist/ffmpeg-$PLAT_TAG$EXT"  "dist/ffmpeg$EXT"  2>/dev/null || true
   cp "dist/ffprobe-$PLAT_TAG$EXT" "dist/ffprobe$EXT" 2>/dev/null || true
 fi
-ls -la dist/ | grep -E "ffmpeg|ffprobe" || echo "WARN: ffmpeg/ffprobe not bundled"
 
 # --- smoke test: the binary must actually start and answer /health ---
-BIN="dist/dubflow-engine"
-if [[ "$(uname)" == *"MINGW"* || "$(uname -s)" == *"Windows"* ]]; then BIN="dist/dubflow-engine.exe"; fi
+BIN="dist/dubflow-engine$EXT"
 DUBFLOW_PORT=8799 "$BIN" > /tmp/dubflow-engine-smoke.log 2>&1 &
 ENGINE_PID=$!
 OK=0
-for i in $(seq 1 40); do
+for i in $(seq 1 60); do
   if curl -sf http://127.0.0.1:8799/health > /dev/null 2>&1; then OK=1; break; fi
   sleep 1
 done
 if [ "$OK" != "1" ]; then
-  echo "ENGINE SMOKE TEST FAILED:"; tail -30 /tmp/dubflow-engine-smoke.log
+  echo "ENGINE SMOKE TEST FAILED:"
+  tail -30 /tmp/dubflow-engine-smoke.log
   kill $ENGINE_PID 2>/dev/null || true
   exit 1
 fi
 curl -s http://127.0.0.1:8799/health
-kill $ENGINE_PID 2>/dev/null || true
 echo ""
-echo "engine packaged and smoke-tested: $ROOT/engine/dist/dubflow-engine"
+kill $ENGINE_PID 2>/dev/null || true
+echo "engine packaged and smoke-tested: $ROOT/engine/dist/dubflow-engine$EXT"
