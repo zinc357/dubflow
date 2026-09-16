@@ -86,26 +86,42 @@ jobs:
 
   whispercpp:
     runs-on: windows-2022
+    env:
+      VULKAN_VERSION: 1.4.357.0
     steps:
+      - name: Install Vulkan SDK (silent)
+        shell: pwsh
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja -y
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
       - uses: actions/checkout@v4
         with:
           repository: ggml-org/whisper.cpp
 
-      - uses: humblepenguinned/install-vulkan-sdk@v1.1.1
-        with:
-          version: 1.4.304.1
-          cache: true
-
       - name: Build whisper-cli (Vulkan, static)
         shell: pwsh
         run: |
-          cmake -S . -B build -DGGML_VULKAN=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF
-          cmake --build build --config Release --target whisper-cli
+          cmake -S . -B build -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DGGML_VULKAN=ON `
+            -DWHISPER_BUILD_TESTS=OFF `
+            -DWHISPER_BUILD_EXAMPLES=OFF `
+            -DBUILD_SHARED_LIBS=OFF
+          cmake --build build --config Release
 
       - name: Package
         shell: pwsh
         run: |
-          Compress-Archive -Path build/bin/Release/whisper-cli.exe `
+          Compress-Archive -Path build/bin/whisper-cli.exe `
             -DestinationPath whispercpp-vulkan-win32-x86_64.zip
       - uses: actions/upload-artifact@v4
         with:
