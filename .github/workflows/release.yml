@@ -85,56 +85,20 @@ jobs:
           path: engine/dist/dubflow-engine*
 
   whispercpp:
-    runs-on: windows-2022
-    env:
-      VULKAN_VERSION: 1.4.357.0
+    runs-on: ubuntu-latest
     steps:
-      - name: Install Vulkan SDK (silent)
-        shell: pwsh
+      - name: Download prebuilt whisper.cpp Vulkan (DomoticX build)
+        shell: bash
         run: |
-          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
-          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
-          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
-          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
-
-      - name: Install Ninja
-        shell: pwsh
-        run: choco install ninja -y
-
-      - uses: ilammy/msvc-dev-cmd@v1
-
-      - uses: actions/checkout@v4
-        with:
-          repository: ggml-org/whisper.cpp
-
-      - name: Build whisper-cli (Vulkan, static)
-        shell: pwsh
-        run: |
-          cmake -S . -B build -G "Ninja" `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DGGML_VULKAN=ON `
-            -DWHISPER_BUILD_TESTS=OFF `
-            -DWHISPER_BUILD_EXAMPLES=OFF `
-            -DBUILD_SHARED_LIBS=OFF
-          cmake --build build --config Release
-
-      - name: Package
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem -Path . -Recurse -Filter whisper-cli.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch "node_modules" } | Select-Object -First 1
-          if (-not $exe) {
-            Write-Host "== whisper-cli.exe NOT found; all exe files: =="
-            Get-ChildItem -Path . -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
-              Select-Object -First 30 | ForEach-Object { Write-Host $_.FullName }
-            throw "whisper-cli.exe not found"
-          }
-          Write-Host "found: $($exe.FullName)"
-          Compress-Archive -Path $exe.FullName -DestinationPath whispercpp-vulkan-win32-x86_64.zip
+          mkdir -p artifact
+          curl -sL --retry 3 \
+            -o artifact/whispercpp-vulkan-win32-x86_64.zip \
+            "https://github.com/DomoticX/whisper.cpp-windows-vulkan/releases/download/v1.0/whisper.cpp-windows-vulkan.zip"
+          ls -la artifact
       - uses: actions/upload-artifact@v4
         with:
           name: whispercpp-vulkan-win32-x86_64
-          path: whispercpp-vulkan-win32-x86_64.zip
+          path: artifact/whispercpp-vulkan-win32-x86_64.zip
 
   gui:
     needs: engine

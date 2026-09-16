@@ -39,6 +39,9 @@ def binary_path() -> Optional[Path]:
     data_bin = Path(settings.models_dir).parent / "bin" / f"whisper-cli-{plat}{ext}"
     if data_bin.is_file():
         return str(data_bin)
+    dl_dir = settings.models_dir / "whispercpp-vulkan-win64"
+    if (dl_dir / "whisper-cli.exe").is_file():
+        return str(dl_dir / "whisper-cli.exe")
     cand = bin_dir / f"whisper-cli-{plat}{ext}"
     if cand.is_file():
         return str(cand)

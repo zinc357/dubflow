@@ -39,7 +39,7 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
   // 非 Apple：CT2（N卡/CPU）与 ggml（A卡 Vulkan）都可选；默认选 CT2
   const modelList = isAppleBackend(health)
     ? MLX_MODELS
-    : [...CT2_MODELS, ...GGML_MODELS];
+    : [...CT2_MODELS, ...GGML_MODELS, "whispercpp-vulkan-win64"];
   // 上次用过的界面选项（浏览器本地）。翻译配置不放这里，由引擎侧保管。
   const [savedPrefs] = useState(loadFormPrefs);
   // new-task form

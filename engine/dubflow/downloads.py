@@ -5,6 +5,7 @@ threads so the engine stays responsive.
 """
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import sys
@@ -75,6 +76,11 @@ CATALOG: Dict[str, Dict[str, Any]] = {
     "ggml-base":      {"backend": "whisper.cpp", "files": _WCPP_FILES["ggml-base"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-small":     {"backend": "whisper.cpp", "files": _WCPP_FILES["ggml-small"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-large-v3-turbo-q5_0": {"backend": "whisper.cpp", "files": _WCPP_FILES["ggml-large-v3-turbo-q5_0"], "sources": _WCPP_SOURCES, "skip_tree": True},
+    # A卡 (AMD/Intel) Windows 专用：DomoticX 预编译 whisper.cpp Vulkan 构建
+    # （https://github.com/DomoticX/whisper.cpp-windows-vulkan，仅 win32-x86_64）
+    "whispercpp-vulkan-win64": {"backend": "whisper.cpp", "files": ["whisper-cli.exe"],
+                                "sources": [("url", "https://github.com/DomoticX/whisper.cpp-windows-vulkan/releases/download/v1.0/whisper.cpp-windows-vulkan.zip")],
+                                "url_zip": True},
 }
 
 _SKIP_FILES = {"README.md", "configuration.json", ".gitattributes"}
@@ -127,7 +133,10 @@ def downloads_snapshot() -> dict:
         size = 0
         if d is not None:
             files = [f for f in d.iterdir() if f.is_file()]
-            has_weights = any(f.suffix in (".npz", ".bin", ".safetensors") for f in files)
+            has_weights = any(
+                f.suffix in (".npz", ".bin", ".safetensors") or f.name == "whisper-cli.exe"
+                for f in files
+            )
             size = sum(f.stat().st_size for f in files)
         info = {"key": key, "repo": repo, "backend": backend,
                 "downloaded": has_weights, "size_mb": round(size / 1e6, 1)}
@@ -180,6 +189,30 @@ def _source_file_url(source: tuple, path: str) -> str:
 def _download_model_sync(key: str, entry: Dict[str, Any]) -> None:
     dest = _model_dir(key)
     dest.mkdir(parents=True, exist_ok=True)
+    if entry.get("url_zip"):
+        # 单 URL 直下 zip 并解压（whisper.cpp Vulkan 预编译包）
+        import zipfile
+        url = entry["sources"][0][1]
+        with httpx.Client(timeout=300, trust_env=True, follow_redirects=True) as client:
+            with client.stream("GET", url) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("content-length", 0)) or 1
+                done = 0
+                zpath = dest / "bundle.zip"
+                with open(zpath, "wb") as w:
+                    for chunk in r.iter_bytes(1 << 20):
+                        w.write(chunk)
+                        done += len(chunk)
+                        _set(f"model:{key}", progress=round(min(done / total, 1.0), 4),
+                             detail=f"{done // 1_000_000}/{total // 1_000_000}MB")
+        with zipfile.ZipFile(zpath) as zf:
+            zf.extractall(dest)
+        zpath.unlink()
+        for f in dest.iterdir():
+            if f.is_file() and os.access(f, os.W_OK):
+                f.chmod(0o755)
+        _set(f"model:{key}", status="done", progress=1.0, detail="completed")
+        return
     files, used = None, None
     if entry.get("skip_tree"):
         # explicit file list (huge repos like ggerganov/whisper.cpp)
