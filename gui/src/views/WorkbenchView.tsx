@@ -21,9 +21,23 @@ export default function WorkbenchView({ jobId, job, onBack }: Props) {
   const [audioRef] = useState<{ current: HTMLAudioElement | null }>({ current: null });
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const [reexportVariant, setReexportVariant] = useState("bilingual");
+  const [reexportSave, setReexportSave] = useState(false);
   const [reexportEmbed, setReexportEmbed] = useState(false);
   const [reexportDir, setReexportDir] = useState("");
   const [pickDir, setPickDir] = useState(false);
+  const [reexportPicked, setReexportPicked] = useState(false);
+
+  // 任务数据到手后，用该任务原本的导出选择作为「重新导出」的默认值。
+  // 只同步一次，之后用户自己改的不会被轮询覆盖。
+  useEffect(() => {
+    if (reexportPicked || !job?.export_options) return;
+    const eo = job.export_options;
+    if (eo.variant) setReexportVariant(eo.variant);
+    setReexportSave(eo.save_to_video_folder ?? false);
+    if (eo.embed_video) setReexportEmbed(true);
+    if (eo.output_dir) setReexportDir(eo.output_dir);
+    setReexportPicked(true);
+  }, [job, reexportPicked]);
 
   const loadTranscript = useCallback(async () => {
     try {
@@ -121,14 +135,14 @@ export default function WorkbenchView({ jobId, job, onBack }: Props) {
     try {
       await api.reexport(jobId, {
         variant: reexportVariant,
-        save_to_video_folder: true,
+        save_to_video_folder: reexportSave,
         embed_video: reexportEmbed,
         output_dir: reexportDir.trim() || undefined,
       });
     } catch (e) {
       setLoadError(String(e));
     }
-  }, [jobId, reexportVariant, reexportEmbed, reexportDir]);
+  }, [jobId, reexportVariant, reexportSave, reexportEmbed, reexportDir]);
 
   const stopJob = useCallback(async () => {
     if (!window.confirm("确定停止该任务？已完成的步骤产物会保留。")) return;
@@ -181,7 +195,18 @@ export default function WorkbenchView({ jobId, job, onBack }: Props) {
               <option value="source">仅原文</option>
             </select>
           </Tooltip>
-          <Tooltip side="bottom" text="用 ffmpeg 把字幕烧进画面生成新视频。需要重新编码，比较耗时。">
+          <Tooltip side="bottom" text="勾选后会把字幕文件复制一份到输出目录。不勾则不落任何字幕文件，改动只保留在任务内部。">
+            <label className="row" style={{ gap: 4 }}>
+              <input
+                type="checkbox"
+                style={{ width: "auto" }}
+                checked={reexportSave}
+                onChange={(e) => setReexportSave(e.target.checked)}
+              />
+              <span className="muted">保存字幕文件</span>
+            </label>
+          </Tooltip>
+          <Tooltip side="bottom" text="用 ffmpeg 把字幕烧进画面生成新视频。需要重新编码，比较耗时。它与「保存字幕文件」互不影响。">
             <label className="row" style={{ gap: 4 }}>
               <input
                 type="checkbox"
@@ -192,7 +217,7 @@ export default function WorkbenchView({ jobId, job, onBack }: Props) {
               <span className="muted">烧录硬字幕视频</span>
             </label>
           </Tooltip>
-          <Tooltip side="bottom" text="按表格里的当前内容重新生成字幕文件（以及可选的硬字幕视频）。改动请先点下方的「保存修改」。">
+          <Tooltip side="bottom" text="按表格里的当前内容重新生成字幕文件（以及可选的硬字幕视频）。改动请先点下方的「保存修改」。两个选项都不勾时不会往输出目录写任何文件。">
             <button
               onClick={doReexport}
               disabled={!editor || exportStep?.status === "running"}

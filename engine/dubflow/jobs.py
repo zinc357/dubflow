@@ -70,6 +70,9 @@ class Job:
             "artifacts": self.artifacts,
             "backend": self.backend,
             "created_at": self.created_at,
+            # 回显导出选择：工作台据此把「重新导出」的默认值设成该任务原本的设定，
+            # 避免用户没勾却被默默落盘的困惑。
+            "export_options": self.export_options,
         }
 
 
@@ -286,6 +289,13 @@ class JobManager:
             log.exception("job %s failed", job.id)
             job.status = "failed"
             job.error = f"{type(e).__name__}: {e}"
+            # 把当时还在 running 的步骤一并标成 failed。
+            # 否则它会永远停在 running，界面上同时出现「任务失败」和
+            # 「语音识别·running 5%」两个互相矛盾的状态。
+            for step in job.steps.values():
+                if step.status == "running":
+                    step.status = "failed"
+                    step.detail = job.error
             self.hub.publish(job.id, self._snap(job, "failed"))
             self._persist(job)
 
@@ -317,7 +327,7 @@ class JobManager:
         e_opts = job.export_options
         save = e_opts.get("save_to_video_folder", True)
         embed = e_opts.get("embed_video", False)
-        detail = ""
+        parts = []
         if save or embed:
             # 交付目录：用户指定优先，未指定则落到原视频所在目录
             custom_dir = (e_opts.get("output_dir") or "").strip().strip('"')
@@ -332,10 +342,16 @@ class JobManager:
             names = {"source": f"{stem}.{src_lang}.srt",
                      "target": f"{stem}.{job.target_language}.srt",
                      "bilingual": f"{stem}.bilingual.{job.target_language}.srt"}
-            dest = video_dir / names[variant]
-            shutil.copyfile(srt_file, dest)
-            job.artifacts["delivered_srt"] = str(dest)
-            detail = f"saved {dest.name}"
+
+            # 「保存字幕文件」与「烧录硬字幕」是两件独立的事，不能共用一个判断：
+            # 取消勾选前者时就不该再往交付目录写 .srt —— 烧录读的是任务目录里
+            # 那份 srt，不需要额外的交付副本。
+            if save:
+                dest = video_dir / names[variant]
+                shutil.copyfile(srt_file, dest)
+                job.artifacts["delivered_srt"] = str(dest)
+                parts.append(f"saved {dest.name}")
+
             if embed:
                 out_ext = Path(job.video_path).suffix or ".mp4"
                 out_video = video_dir / f"{stem}.{variant}.hardsub{out_ext}"
@@ -351,8 +367,8 @@ class JobManager:
                                      str(out_video), duration=duration,
                                      workdir=str(job_dir), progress=burn_progress)
                 job.artifacts["embedded_video"] = str(out_video)
-                detail += f" + {out_video.name}"
-        await self._set_step(job, loop, "export", "done", 1.0, detail)
+                parts.append(out_video.name)
+        await self._set_step(job, loop, "export", "done", 1.0, " + ".join(parts))
 
     def _regen_srts(self, job: Job) -> None:
         """Refresh in-project SRT artifacts after an edit (no delivery)."""

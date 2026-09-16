@@ -6,7 +6,7 @@ from contextlib import closing
 from typing import Dict, Optional, Tuple
 
 from .base import ASRError, ASRProvider, BackendInfo, ProgressFn, Segment, Transcript
-from ..config import resolve_model_dir
+from ..config import canonical_model_name, resolve_model_dir
 
 DEFAULT_MODEL = "base"
 
@@ -71,7 +71,10 @@ class FasterWhisperProvider(ASRProvider):
                 # 目录名可能是别名（base）也可能是下载器键名（faster-whisper-base），
                 # 交给 resolve_model_dir 统一解析，避免「下好了却找不到」。
                 local = resolve_model_dir(model_size)
-                target = str(local) if local is not None else model_size
+                # 本地没有时，回退名必须是 faster-whisper 认得的名字。
+                # GUI 发来的是下载器键名（如 faster-whisper-large-v3-turbo），
+                # 原样传给它只会得到一个 ValueError: Invalid model size。
+                target = str(local) if local is not None else canonical_model_name(model_size)
                 try:
                     self._models[key] = WhisperModel(
                         target, device=self.device, compute_type=self.compute_type,

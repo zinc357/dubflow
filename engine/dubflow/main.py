@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from . import __version__
 from .asr import describe_backend
-from .config import settings
+from .config import mask_secret, settings, update_user_settings
 from .downloads import downloads_snapshot, start_ffmpeg_download, start_model_download
 from .jobs import JobManager
 from .schemas import JobCreate
@@ -56,6 +56,68 @@ async def health() -> dict:
         "backend": describe_backend(),
         "data_dir": str(settings.data_dir),
     }
+
+
+class LlmSettings(BaseModel):
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class MicrosoftSettings(BaseModel):
+    key: Optional[str] = None
+    region: Optional[str] = None
+
+
+class SettingsUpdate(BaseModel):
+    llm: Optional[LlmSettings] = None
+    microsoft: Optional[MicrosoftSettings] = None
+
+
+def _settings_payload() -> dict:
+    return {
+        "llm": {
+            "base_url": settings.translate_base_url,
+            "model": settings.translate_model,
+            "api_key_set": bool(settings.translate_api_key),
+            "api_key_hint": mask_secret(settings.translate_api_key),
+        },
+        "microsoft": {
+            "region": settings.msft_translator_region,
+            "key_set": bool(settings.msft_translator_key),
+            "key_hint": mask_secret(settings.msft_translator_key),
+        },
+    }
+
+
+@app.get("/settings")
+async def get_settings() -> dict:
+    """返回 GUI 可安全展示的翻译配置。
+
+    密钥只回掩码（如 "sk-…1a2b"），**绝不返回明文**：前端把密钥框留空即表示
+    「沿用已保存的值」，由 translator.py 里的 `t_opts.get("api_key") or settings....`
+    兜底。这样浏览器页面任何时刻都拿不到完整密钥。
+    """
+    return _settings_payload()
+
+
+@app.put("/settings")
+async def put_settings(body: SettingsUpdate) -> dict:
+    """持久化配置到 ~/.dubflow/settings.json。
+
+    字段为 None 表示前端没动它（保持原样），空字符串表示清除。
+    传入空字符串时密钥会回落到环境变量基线，而不是变成空字符串。
+    """
+    updates: dict = {}
+    if body.llm is not None:
+        updates["translate_base_url"] = body.llm.base_url
+        updates["translate_model"] = body.llm.model
+        updates["translate_api_key"] = body.llm.api_key
+    if body.microsoft is not None:
+        updates["msft_translator_key"] = body.microsoft.key
+        updates["msft_translator_region"] = body.microsoft.region
+    update_user_settings(updates)
+    return _settings_payload()
 
 
 @app.post("/jobs")
