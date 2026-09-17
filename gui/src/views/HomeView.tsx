@@ -542,14 +542,16 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
           </div>
           <table style={{ marginTop: 12 }}>
             <thead>
-              <tr><th>模型</th><th>后端</th><th>本地大小</th><th>状态</th><th></th></tr>
+              <tr><th>模型</th><th>后端</th><th>磁盘占用</th><th>状态</th><th></th></tr>
             </thead>
             <tbody>
-              {dl?.models.map((m) => (
+              {dl?.models
+                .filter((m) => isAppleBackend(health) === (m.backend === "mlx"))
+                .map((m) => (
                 <tr key={m.key}>
                   <td>{m.key}</td>
                   <td>{m.backend}</td>
-                  <td>{m.size_mb} MB</td>
+                  <td>{m.downloaded ? `${m.size_mb} MB` : `约 ${m.dl_size_mb} MB`}</td>
                   <td>
                     {m.downloaded
                       ? "已下载"

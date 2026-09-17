@@ -34,7 +34,9 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/dubflow-engine"
+      "binaries/dubflow-engine",
+      "binaries/ffmpeg",
+      "binaries/ffprobe"
     ]
   }
 }

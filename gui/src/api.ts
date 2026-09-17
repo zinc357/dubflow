@@ -52,6 +52,7 @@ export interface ModelInfo extends DownloadState {
   backend: string;
   downloaded: boolean;
   size_mb: number;
+  dl_size_mb: number;
 }
 
 export interface DownloadsSnapshot {

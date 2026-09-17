@@ -59,6 +59,30 @@ jobs:
             --hidden-import uvicorn.lifespan.on \
             run_engine.py
 
+      - name: Bundle ffmpeg/ffprobe (static per-OS)
+        shell: bash
+        run: |
+          mkdir -p engine/dist
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            curl -sL --retry 3 -o ff9.zip https://www.osxexperts.net/ffmpeg9arm.zip
+            curl -sL --retry 3 -o fp9.zip https://www.osxexperts.net/ffprobe9arm.zip
+            unzip -o -j ff9.zip -d ffd; unzip -o -j fp9.zip -d fpd
+            cp ffd/ffmpeg  engine/dist/ffmpeg-darwin-arm64
+            cp fpd/ffprobe engine/dist/ffprobe-darwin-arm64
+          elif [ "$RUNNER_OS" = "Linux" ]; then
+            curl -sL --retry 3 -o ff.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            tar -xJf ff.tar.xz
+            cp ffmpeg-*-static/ffmpeg  engine/dist/ffmpeg-linux-x86_64
+            cp ffmpeg-*-static/ffprobe engine/dist/ffprobe-linux-x86_64
+          else
+            curl -sL --retry 3 -o ff.zip https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+            unzip -o -q ff.zip -d ffz
+            find ffz -type f -name ffmpeg.exe  -exec cp {} engine/dist/ffmpeg-win32-x86_64.exe \;
+            find ffz -type f -name ffprobe.exe -exec cp {} engine/dist/ffprobe-win32-x86_64.exe \;
+          fi
+          chmod +x engine/dist/ffmpeg-* engine/dist/ffprobe-* 2>/dev/null || true
+          ls -la engine/dist/
+
       - name: Smoke test engine binary
         working-directory: engine
         shell: bash
@@ -82,7 +106,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: engine-${{ matrix.target }}
-          path: engine/dist/dubflow-engine*
+          path: |
+            engine/dist/dubflow-engine*
+            engine/dist/ffmpeg-*
+            engine/dist/ffprobe-*
 
   whispercpp:
     runs-on: ubuntu-latest
@@ -127,7 +154,7 @@ jobs:
           name: engine-${{ matrix.target }}
           path: engine-dist
 
-      - name: Place engine sidecar
+      - name: Place engine sidecar + ffmpeg/ffprobe
         shell: bash
         run: |
           mkdir -p gui/src-tauri/binaries
@@ -141,6 +168,10 @@ jobs:
             printf '#!/bin/sh\necho dubflow engine placeholder\n' > "$SIDECAR"
             chmod +x "$SIDECAR" || true
           fi
+          # ffmpeg/ffprobe 同目录捆绑（引擎 frozen 查找可执行目录）
+          for f in $(find engine-dist -type f \( -name "ffmpeg-*" -o -name "ffprobe-*" \) 2>/dev/null); do
+            cp "$f" gui/src-tauri/binaries/ || true
+          done
           ls -la gui/src-tauri/binaries || true
 
       - name: Install Linux system deps (tauri v2)

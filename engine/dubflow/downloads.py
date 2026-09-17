@@ -46,39 +46,39 @@ def _hfm(repo: str) -> tuple:
     return ("hf-mirror", repo)
 
 CATALOG: Dict[str, Dict[str, Any]] = {
-    "tiny":               {"backend": "mlx", "files": _MLX_FILES,
+    "tiny":               {"backend": "mlx", "dl_size_mb": 75, "files": _MLX_FILES,
                            "sources": [_ms("mlx-community/whisper-tiny-mlx"), _hfm("mlx-community/whisper-tiny")]},
-    "medium":             {"backend": "mlx", "files": _MLX_FILES,
+    "medium":             {"backend": "mlx", "dl_size_mb": 577, "files": _MLX_FILES,
                            "sources": [_ms("mlx-community/whisper-medium-4bit"), _hfm("mlx-community/whisper-medium-4bit")]},
-    "large-v3":           {"backend": "mlx", "files": _MLX_FILES,
+    "large-v3":           {"backend": "mlx", "dl_size_mb": 583, "files": _MLX_FILES,
                            "sources": [_ms("mlx-community/whisper-large-v3-4bit"), _hfm("mlx-community/whisper-large-v3-4bit")]},
-    "large-v3-turbo":     {"backend": "mlx", "files": ["config.json", "weights.safetensors"],
+    "large-v3-turbo":     {"backend": "mlx", "dl_size_mb": 1614, "files": ["config.json", "weights.safetensors"],
                            "sources": [_ms("mlx-community/whisper-large-v3-turbo"), _hfm("mlx-community/whisper-large-v3-turbo")]},
-    "large-v3-turbo-q4":  {"backend": "mlx", "files": _MLX_FILES,
+    "large-v3-turbo-q4":  {"backend": "mlx", "dl_size_mb": 464, "files": _MLX_FILES,
                            "sources": [_ms("mlx-community/whisper-large-v3-turbo-4bit"), _hfm("mlx-community/whisper-large-v3-turbo-q4")]},
-    "faster-whisper-tiny":     {"backend": "ctranslate2", "files": _CT2_FILES,
+    "faster-whisper-tiny":     {"backend": "ctranslate2", "dl_size_mb": 78, "files": _CT2_FILES,
                                 "sources": [_ms("Systran/faster-whisper-tiny"), _hfm("Systran/faster-whisper-tiny")]},
-    "faster-whisper-base":     {"backend": "ctranslate2", "files": _CT2_FILES,
+    "faster-whisper-base":     {"backend": "ctranslate2", "dl_size_mb": 148, "files": _CT2_FILES,
                                 "sources": [_ms("Systran/faster-whisper-base"), _hfm("Systran/faster-whisper-base")]},
-    "faster-whisper-small":    {"backend": "ctranslate2", "files": _CT2_FILES,
+    "faster-whisper-small":    {"backend": "ctranslate2", "dl_size_mb": 486, "files": _CT2_FILES,
                                 "sources": [_ms("Systran/faster-whisper-small"), _hfm("Systran/faster-whisper-small")]},
-    "faster-whisper-medium":   {"backend": "ctranslate2", "files": _CT2_FILES,
+    "faster-whisper-medium":   {"backend": "ctranslate2", "dl_size_mb": 1533, "files": _CT2_FILES,
                                 "sources": [_ms("Systran/faster-whisper-medium"), _hfm("Systran/faster-whisper-medium")]},
-    "faster-whisper-large-v3": {"backend": "ctranslate2", "files": _CT2_FILES,
+    "faster-whisper-large-v3": {"backend": "ctranslate2", "dl_size_mb": 3092, "files": _CT2_FILES,
                                 "sources": [_ms("Systran/faster-whisper-large-v3"), _hfm("Systran/faster-whisper-large-v3")]},
     # large-v3-turbo 没有 Systran 版；这里用 faster-whisper 官方映射的仓库
     # (见 faster_whisper/utils.py 的 _MODELS)，ModelScope 与 HF 镜像都有。
-    "faster-whisper-large-v3-turbo": {"backend": "ctranslate2", "files": _CT2_FILES,
+    "faster-whisper-large-v3-turbo": {"backend": "ctranslate2", "dl_size_mb": 1620, "files": _CT2_FILES,
                                 "sources": [_ms("mobiuslabsgmbh/faster-whisper-large-v3-turbo"),
                                             _hfm("mobiuslabsgmbh/faster-whisper-large-v3-turbo")]},
     # whisper.cpp ggml models (AMD/Intel Vulkan backend; also runs on any CPU)
-    "ggml-tiny":      {"backend": "whisper.cpp", "files": _WCPP_FILES["ggml-tiny"], "sources": _WCPP_SOURCES, "skip_tree": True},
-    "ggml-base":      {"backend": "whisper.cpp", "files": _WCPP_FILES["ggml-base"], "sources": _WCPP_SOURCES, "skip_tree": True},
-    "ggml-small":     {"backend": "whisper.cpp", "files": _WCPP_FILES["ggml-small"], "sources": _WCPP_SOURCES, "skip_tree": True},
-    "ggml-large-v3-turbo-q5_0": {"backend": "whisper.cpp", "files": _WCPP_FILES["ggml-large-v3-turbo-q5_0"], "sources": _WCPP_SOURCES, "skip_tree": True},
+    "ggml-tiny":      {"backend": "whisper.cpp", "dl_size_mb": 75, "files": _WCPP_FILES["ggml-tiny"], "sources": _WCPP_SOURCES, "skip_tree": True},
+    "ggml-base":      {"backend": "whisper.cpp", "dl_size_mb": 142, "files": _WCPP_FILES["ggml-base"], "sources": _WCPP_SOURCES, "skip_tree": True},
+    "ggml-small":     {"backend": "whisper.cpp", "dl_size_mb": 466, "files": _WCPP_FILES["ggml-small"], "sources": _WCPP_SOURCES, "skip_tree": True},
+    "ggml-large-v3-turbo-q5_0": {"backend": "whisper.cpp", "dl_size_mb": 570, "files": _WCPP_FILES["ggml-large-v3-turbo-q5_0"], "sources": _WCPP_SOURCES, "skip_tree": True},
     # A卡 (AMD/Intel) Windows 专用：DomoticX 预编译 whisper.cpp Vulkan 构建
     # （https://github.com/DomoticX/whisper.cpp-windows-vulkan，仅 win32-x86_64）
-    "whispercpp-vulkan-win64": {"backend": "whisper.cpp", "files": ["whisper-cli.exe"],
+    "whispercpp-vulkan-win64": {"backend": "whisper.cpp", "dl_size_mb": 18, "files": ["whisper-cli.exe"],
                                 "sources": [("url", "https://github.com/DomoticX/whisper.cpp-windows-vulkan/releases/download/v1.0/whisper.cpp-windows-vulkan.zip")],
                                 "url_zip": True},
 }
@@ -138,8 +138,11 @@ def downloads_snapshot() -> dict:
                 for f in files
             )
             size = sum(f.stat().st_size for f in files)
+        dl_size = CATALOG[key].get("dl_size_mb", 0)
         info = {"key": key, "repo": repo, "backend": backend,
-                "downloaded": has_weights, "size_mb": round(size / 1e6, 1)}
+                "downloaded": has_weights,
+                "size_mb": round(size / 1e6, 1) if has_weights else dl_size,
+                "dl_size_mb": dl_size}
         info.update(_get(f"model:{key}"))
         models.append(info)
     ff = ffmpeg_status()
