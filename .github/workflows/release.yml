@@ -168,9 +168,11 @@ jobs:
             printf '#!/bin/sh\necho dubflow engine placeholder\n' > "$SIDECAR"
             chmod +x "$SIDECAR" || true
           fi
-          # ffmpeg/ffprobe 同目录捆绑（引擎 frozen 查找可执行目录）
+          # ffmpeg/ffprobe 按 tauri externalBin 要求以 triple 命名捆绑
           for f in $(find engine-dist -type f \( -name "ffmpeg-*" -o -name "ffprobe-*" \) 2>/dev/null); do
-            cp "$f" gui/src-tauri/binaries/ || true
+            base=$(basename "$f")
+            kind=${base%%-*}
+            cp "$f" "gui/src-tauri/binaries/${kind}-${{ matrix.target }}${EXT}"
           done
           ls -la gui/src-tauri/binaries || true
 
