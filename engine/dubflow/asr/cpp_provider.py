@@ -94,6 +94,16 @@ class WhisperCppProvider(ASRProvider):
 
         out_dir = Path(tempfile.mkdtemp(prefix="dubflow-wcpp-"))
         out_prefix = out_dir / "out"
+        model_path = Path(model)
+        with open(model_path, "rb") as f:
+            magic = f.read(4)
+        if magic != b"ggml":
+            raise ASRError(
+                f"{model_path.name} 不是 whisper.cpp 的 ggml 模型"
+                "（可能是 CTranslate2 格式——那是 faster-whisper 专用格式）。"
+                "A 卡 Vulkan 请在「模型与依赖」面板下载 ggml-* 模型。"
+            )
+
         cmd = [
             binary, "-m", model, "-f", str(audio_path),
             "-l", language or "auto",

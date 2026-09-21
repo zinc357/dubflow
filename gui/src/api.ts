@@ -141,7 +141,7 @@ export const api = {
     video_path: string;
     source_language: string | null;
     target_language: string;
-    asr: { provider: string; model: string | null };
+    asr: { provider: string; model?: string | null; device?: string; size?: string };
     translation: {
       enabled: boolean;
       provider: string;

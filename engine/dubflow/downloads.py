@@ -27,7 +27,7 @@ from .ffmpeg_tools import bundled, plat_tag
 # backend "ctranslate2" -> faster-whisper (NVIDIA CUDA / CPU), TODO(platform): 真机验证
 # ---------------------------------------------------------------------------
 _MLX_FILES = ["config.json", "weights.npz"]
-_CT2_FILES = ["config.json", "model.bin", "tokenizer.json", "preprocessor_config.json", "vocabulary.json"]
+_CT2_FILES = ["config.json", "model.bin", "tokenizer.json", "preprocessor_config.json", "vocabulary.txt", "vocabulary.json"]
 
 # whisper.cpp ggml models live in the huge ggerganov/whisper.cpp repo;
 # skip tree listing and download the single model file directly.

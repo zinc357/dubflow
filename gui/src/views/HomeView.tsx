@@ -13,6 +13,7 @@ const MLX_MODELS = ["tiny", "medium", "large-v3", "large-v3-turbo", "large-v3-tu
 
 
 const GGML_MODELS = ["ggml-tiny", "ggml-base", "ggml-small", "ggml-large-v3-turbo-q5_0"];
+const SIZES = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"];
 const CT2_MODELS = [
   "faster-whisper-tiny",
   "faster-whisper-base",
@@ -35,18 +36,14 @@ interface Props {
 }
 
 export default function HomeView({ jobs, onOpenJob, health }: Props) {
-  const backendName = health?.backend?.name;
-  // 非 Apple：CT2（N卡/CPU）与 ggml（A卡 Vulkan）都可选；默认选 CT2
-  const modelList = isAppleBackend(health)
-    ? MLX_MODELS
-    : [...CT2_MODELS, ...GGML_MODELS, "whispercpp-vulkan-win64"];
   // 上次用过的界面选项（浏览器本地）。翻译配置不放这里，由引擎侧保管。
   const [savedPrefs] = useState(loadFormPrefs);
   // new-task form
   const [videoPath, setVideoPath] = useState("");
   const [sourceLang, setSourceLang] = useState(savedPrefs.sourceLang ?? "");
   const [targetLang, setTargetLang] = useState(savedPrefs.targetLang ?? "zh");
-  const [model, setModel] = useState(savedPrefs.model ?? DEFAULT_CT2_MODEL);
+  const [device, setDevice] = useState(savedPrefs.device ?? "auto");
+  const [size, setSize] = useState(savedPrefs.size ?? "large-v3-turbo");
   const [translate, setTranslate] = useState(savedPrefs.translate ?? false);
   const [trProvider, setTrProvider] = useState(savedPrefs.trProvider ?? "llm");
   const [apiKey, setApiKey] = useState("");
@@ -78,10 +75,10 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
   // 记住表单选项：下次打开就是上次的样子
   useEffect(() => {
     saveFormPrefs({
-      sourceLang, targetLang, model, translate, trProvider,
+      sourceLang, targetLang, size, device, translate, trProvider,
       subtitleVariant, saveSrt, embedVideo, outputDir,
     });
-  }, [sourceLang, targetLang, model, translate, trProvider,
+  }, [sourceLang, targetLang, size, device, translate, trProvider,
       subtitleVariant, saveSrt, embedVideo, outputDir]);
 
   const applySettings = useCallback((s: EngineSettings) => {
@@ -95,17 +92,6 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
   }, []);
 
   // 进入页面时拉取引擎侧已保存的翻译配置
-  useEffect(() => {
-    api.getSettings().then(applySettings).catch(() => {});
-  }, [applySettings]);
-
-  // 后端探测结果回来后，把选中项切到该平台真正可用的模型（保留上次的有效选择）
-  useEffect(() => {
-    if (!health?.backend?.name) return;
-    const apple = isAppleBackend(health);
-    const list = apple ? MLX_MODELS : CT2_MODELS;
-    setModel((cur) => (list.includes(cur) ? cur : apple ? DEFAULT_MLX_MODEL : DEFAULT_CT2_MODEL));
-  }, [health?.backend?.name]);
 
   const clearSavedKey = useCallback(async (which: "llm" | "microsoft") => {
     if (!window.confirm("清除引擎侧已保存的密钥？以后需要重新填写。")) return;
@@ -147,7 +133,7 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
         video_path: videoPath,
         source_language: sourceLang.trim() || null,
         target_language: targetLang.trim() || "zh",
-        asr: { provider: "auto", model },
+        asr: { provider: "auto", device, size },
         translation: {
           enabled: translate,
           provider: trProvider,
@@ -170,7 +156,7 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
     } catch (e) {
       setFormError(String(e));
     }
-  }, [videoPath, sourceLang, targetLang, model, translate, trProvider, apiKey, apiBase, apiModel, msftKey, msftRegion, subtitleVariant, saveSrt, embedVideo, outputDir, applySettings]);
+  }, [videoPath, sourceLang, targetLang, size, device, translate, trProvider, apiKey, apiBase, apiModel, msftKey, msftRegion, subtitleVariant, saveSrt, embedVideo, outputDir, applySettings]);
 
   const stopJob = useCallback(async (id: string) => {
     if (!window.confirm("确定停止该任务？已完成的步骤产物会保留。")) return;
@@ -262,17 +248,20 @@ export default function HomeView({ jobs, onOpenJob, health }: Props) {
               onChange={(e) => setTargetLang(e.target.value)}
             />
           </Tooltip>
-          <Tooltip text="语音识别模型。越大越准也越慢；large-v3-turbo 是质量与速度的平衡点。首次使用需在下方「模型与依赖」里下载。" side="bottom">
-            <label className="muted">识别模型</label>
+          <Tooltip text="运算设备：自动 = 有显卡用显卡，否则 CPU。选 GPU 后由引擎按显卡型号自动路由（NVIDIA→CUDA，AMD/Intel→Vulkan）。" side="bottom">
+            <label className="muted">运算设备</label>
           </Tooltip>
-          <Tooltip
-            text={`列表已按当前后端（${isAppleBackend(health) ? "mlx · Apple Silicon" : "CTranslate2 · NVIDIA CUDA 或 CPU"}）过滤，共 ${modelList.length} 个可用模型。`}
-            side="bottom"
-          >
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {modelList.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+          <select value={device} onChange={(e) => setDevice(e.target.value)}>
+            <option value="auto">自动</option>
+            <option value="gpu">GPU（显卡加速）</option>
+            <option value="cpu">CPU</option>
+          </select>
+          <Tooltip text="模型大小：越大越准也越慢。large-v3-turbo 是质量与速度的平衡点。首次使用需在下方「模型与依赖」里下载。" side="bottom">
+            <label className="muted">模型大小</label>
           </Tooltip>
+          <select value={size} onChange={(e) => setSize(e.target.value)}>
+            {SIZES.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
           <Tooltip text="开启后会在识别完成后调用翻译服务生成译文字幕，需要填好下面的 API 信息。" side="bottom">
             <label className="row" style={{ gap: 4 }}>
               <input

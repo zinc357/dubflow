@@ -9,7 +9,8 @@
 export interface FormPrefs {
   sourceLang: string;
   targetLang: string;
-  model: string;
+  device: string;
+  size: string;
   translate: boolean;
   trProvider: string;
   subtitleVariant: string;

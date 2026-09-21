@@ -112,6 +112,73 @@ def describe_backend() -> dict:
 # ---------------------------------------------------------------------------
 
 
+def resolve_asr(device: str = "auto", size: str = "large-v3-turbo") -> tuple:
+    """按用户选择的运算设备与模型大小路由到 (provider, model_key)。
+
+    device: auto | gpu | cpu
+    size:   tiny | base | small | medium | large-v3 | large-v3-turbo
+    """
+    from .mlx_provider import MODEL_MAP as MLX_MAP
+
+    device = (device or "auto").lower()
+    size = (size or "large-v3-turbo").lower()
+    mac = _is_apple_silicon()
+
+    # ggml-* 模型键 → 永远路由 whisper.cpp（任何平台；mac 上走 Metal）
+    if size.startswith("ggml-"):
+        if _whisper_cpp_available():
+            from .cpp_provider import WhisperCppProvider
+            return WhisperCppProvider(backend="metal" if mac else "vulkan"), size
+        raise ASRError(
+            "whisper.cpp 后端不可用：请先安装 whisper-cli（mac: brew install "
+            "whisper-cpp；win/linux: 从 Release 页下载 whispercpp-vulkan 包）。"
+        )
+
+    ggml_map = {
+        "tiny": "ggml-tiny",
+        "base": "ggml-base",
+        "small": "ggml-small",
+        "medium": "ggml-medium",
+        "large-v3-turbo": "ggml-large-v3-turbo-q5_0",
+    }
+
+    if mac:
+        if device == "cpu":
+            from .faster_provider import FasterWhisperProvider
+            return FasterWhisperProvider(device="cpu", compute_type="int8"), size
+        # gpu / auto -> MLX (Metal)；返回别名键（tiny 等），由 resolve_repo 解析本地目录
+        if _mlx_available():
+            from .mlx_provider import MLXWhisperProvider
+            return MLXWhisperProvider(), size
+        raise ASRError("macOS Metal GPU 后端不可用（pip install mlx-whisper）")
+
+    # Windows / Linux
+    if device == "gpu":
+        if _cuda_device_count() > 0:
+            from .faster_provider import FasterWhisperProvider
+            return FasterWhisperProvider(device="cuda", compute_type="float16"), size
+        if _whisper_cpp_available():
+            from .cpp_provider import WhisperCppProvider
+            return WhisperCppProvider(backend="vulkan"), ggml_map.get(size, ggml_map["large-v3-turbo"])
+        raise ASRError(
+            "未检测到可用 GPU：NVIDIA 需要 CUDA 驱动；AMD/Intel 需要 whisper.cpp "
+            "Vulkan 运行时（模型与依赖面板下载 whispercpp-vulkan-win64）。可改用 CPU。"
+        )
+    if device == "cpu":
+        from .faster_provider import FasterWhisperProvider
+        return FasterWhisperProvider(device="cpu", compute_type="int8"), ct2_size_of(size)
+    # auto：有 NVIDIA 用 CUDA，否则 CPU int8（A卡用户的 GPU 路线请显式选 GPU + ggml 模型）
+    if _cuda_device_count() > 0:
+        from .faster_provider import FasterWhisperProvider
+        return FasterWhisperProvider(device="cuda", compute_type="float16"), ct2_size_of(size)
+    from .faster_provider import FasterWhisperProvider
+    return FasterWhisperProvider(device="cpu", compute_type="int8"), ct2_size_of(size)
+
+
+def ct2_size_of(size: str) -> str:
+    return {"large-v3-turbo": "large-v3-turbo"}.get(size, size)
+
+
 def select_provider(model_size: Optional[str] = None,
                     preferred: Optional[str] = None) -> ASRProvider:
     """preferred: auto | mlx-whisper | faster-whisper | whisper.cpp.

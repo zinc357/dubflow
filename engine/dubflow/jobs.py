@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from .asr import select_provider
+from .asr import resolve_asr, select_provider
 from .asr.base import Segment, Transcript
 from .config import settings
 from .ffmpeg_tools import burn_subtitles, extract_audio, probe, wav_duration
@@ -220,8 +220,15 @@ class JobManager:
 
             # 3. ASR (GPU when available; runs in worker thread)
             await self._set_step(job, loop, "asr", "running", 0.02)
-            provider = select_provider(job.asr_options.get("model"),
-                                 job.asr_options.get("provider"))
+            model_opt = job.asr_options.get("model")
+            if model_opt:
+                # 旧客户端：显式模型键（faster-whisper-* / ggml-* / mlx 仓库名）
+                provider = select_provider(model_opt, job.asr_options.get("provider"))
+                model_key = model_opt
+            else:
+                provider, model_key = resolve_asr(
+                    job.asr_options.get("device") or "auto",
+                    job.asr_options.get("size") or "large-v3-turbo")
             job.backend = provider.info.to_dict()
             self._persist(job)
             self.hub.publish(job.id, self._snap(job))

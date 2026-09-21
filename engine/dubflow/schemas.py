@@ -7,7 +7,9 @@ from pydantic import BaseModel
 
 class ASROptions(BaseModel):
     provider: str = "auto"          # auto | mlx-whisper | faster-whisper | whisper.cpp
-    model: Optional[str] = None     # e.g. "large-v3-turbo" or any HF repo id
+    device: Optional[str] = None    # auto | gpu | cpu（新 GUI 使用）
+    size: Optional[str] = None      # tiny | base | small | medium | large-v3 | large-v3-turbo
+    model: Optional[str] = None     # 旧客户端显式模型键（兼容保留）
 
 
 class TranslationOptions(BaseModel):
