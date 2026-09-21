@@ -39,7 +39,7 @@ if [ "$OS_TAG" = "win32" ]; then EXT=".exe"; fi
   --hidden-import uvicorn.loops.auto \
   --hidden-import uvicorn.protocols.http.auto \
   --hidden-import uvicorn.protocols.websockets.auto \
-  --hidden-import uvicorn.lifespan.on \
+  --hidden-import uvicorn.lifespan.on \n  --hidden-import python_multipart \n  --hidden-import multipart \
   run_engine.py
 
 # --- bundle ffmpeg/ffprobe next to the engine (frozen bin dir) ---
