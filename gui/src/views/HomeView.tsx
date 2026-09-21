@@ -12,7 +12,7 @@ import Tooltip from "../components/Tooltip";
 const MLX_MODELS = ["tiny", "medium", "large-v3", "large-v3-turbo", "large-v3-turbo-q4"];
 
 
-const GGML_MODELS = ["ggml-tiny", "ggml-base", "ggml-small", "ggml-large-v3-turbo-q5_0"];
+const GGML_MODELS = ["ggml-tiny", "ggml-base", "ggml-small", "ggml-medium", "ggml-large-v3-turbo-q5_0"];
 const SIZES = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"];
 const CT2_MODELS = [
   "faster-whisper-tiny",

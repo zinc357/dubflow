@@ -75,6 +75,7 @@ CATALOG: Dict[str, Dict[str, Any]] = {
     "ggml-tiny":      {"backend": "whisper.cpp", "dl_size_mb": 75, "files": _WCPP_FILES["ggml-tiny"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-base":      {"backend": "whisper.cpp", "dl_size_mb": 142, "files": _WCPP_FILES["ggml-base"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-small":     {"backend": "whisper.cpp", "dl_size_mb": 466, "files": _WCPP_FILES["ggml-small"], "sources": _WCPP_SOURCES, "skip_tree": True},
+    "ggml-medium":    {"backend": "whisper.cpp", "dl_size_mb": 1533, "files": ["ggml-medium.bin"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-large-v3-turbo-q5_0": {"backend": "whisper.cpp", "dl_size_mb": 570, "files": _WCPP_FILES["ggml-large-v3-turbo-q5_0"], "sources": _WCPP_SOURCES, "skip_tree": True},
     # A卡 (AMD/Intel) Windows 专用：DomoticX 预编译 whisper.cpp Vulkan 构建
     # （https://github.com/DomoticX/whisper.cpp-windows-vulkan，仅 win32-x86_64）

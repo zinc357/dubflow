@@ -14,6 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+import threading
+import time
+
 from . import __version__
 from .asr import describe_backend
 from .config import mask_secret, settings, update_user_settings
@@ -423,7 +426,23 @@ async def job_events(ws: WebSocket, job_id: str) -> None:
         manager.hub.unsubscribe(job_id, q)
 
 
+def _parent_watchdog() -> None:
+    """POSIX: 父进程（GUI 壳）退出后引擎自动退出。
+
+    PyInstaller onefile 的引导父进程被杀时，实际引擎子进程会成为孤儿继续
+    运行；轮询 getppid 变化来兜底。Windows 走 taskkill /T 树杀，不需要此线程。
+    """
+    if sys.platform == "win32":
+        return
+    initial = os.getppid()
+    while True:
+        time.sleep(2)
+        if os.getppid() != initial:
+            os._exit(0)
+
+
 def main() -> None:
+    threading.Thread(target=_parent_watchdog, daemon=True).start()
     uvicorn.run("dubflow.main:app", host=settings.host, port=settings.port,
                 log_level="info")
 

@@ -42,6 +42,21 @@ fn main() {
                 if let Some(child) =
                     app_handle.state::<EngineChild>().0.lock().unwrap().take()
                 {
+                    // PyInstaller onefile 会派生子进程：杀单个进程不够，
+                    // 需要按进程树终止（Windows: taskkill /T；POSIX: 进程组）
+                    let pid = child.pid().to_string();
+                    #[cfg(target_os = "windows")]
+                    {
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/F", "/T", "/PID", &pid])
+                            .status();
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        let _ = std::process::Command::new("kill")
+                            .args(["-9", &pid])
+                            .status();
+                    }
                     let _ = child.kill();
                 }
             }
