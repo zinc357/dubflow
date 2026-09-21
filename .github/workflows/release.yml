@@ -56,7 +56,9 @@ jobs:
             --hidden-import uvicorn.loops.auto \
             --hidden-import uvicorn.protocols.http.auto \
             --hidden-import uvicorn.protocols.websockets.auto \
-            --hidden-import uvicorn.lifespan.on \n            --hidden-import python_multipart \n            --hidden-import multipart \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import python_multipart \
+            --hidden-import multipart \
             run_engine.py
 
       - name: Bundle ffmpeg/ffprobe (static per-OS)
