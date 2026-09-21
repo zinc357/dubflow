@@ -30,7 +30,11 @@ def resolve_repo(model_size: Optional[str]) -> str:
         return name[3:]
     mapped = MODEL_MAP.get(name, name)
     candidates = [name, mapped, Path(mapped).name]
-    for c in candidates:
+    # 量化版回退：用户选 large-v3-turbo 但本地只有 large-v3-turbo-q4
+    for c in list(candidates):
+        candidates.append(c + "-q4")
+        candidates.append(Path(c).stem + "-q4" + Path(c).suffix)
+    for c in dict.fromkeys(candidates):  # 去重
         local = settings.models_dir / c
         if local.is_dir():
             return str(local)

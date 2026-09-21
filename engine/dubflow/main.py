@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 import os
 import string
 import sys
@@ -11,7 +12,8 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import UploadFile, File
 from pydantic import BaseModel
 
 import threading
@@ -49,6 +51,14 @@ app.add_middleware(
 )
 
 manager = JobManager()
+
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    html_path = Path(__file__).resolve().parents[1] / "static" / "index.html"
+    if html_path.is_file():
+        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>DubFlow Engine</h1><p>API running. Use GUI at :5173</p>")
 
 
 @app.get("/health")
@@ -121,6 +131,23 @@ async def put_settings(body: SettingsUpdate) -> dict:
         updates["msft_translator_region"] = body.microsoft.region
     update_user_settings(updates)
     return _settings_payload()
+
+
+@app.post("/upload")
+async def upload_video(file: UploadFile = File(...)):
+    """接收前端上传的视频文件，保存到 uploads/ 目录，返回服务端路径。"""
+    upload_dir = Path(settings.data_dir) / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    # 保留原始文件名（输出文件名基于此）；重名时加后缀
+    stem = Path(file.filename).stem or "video"
+    ext = Path(file.filename).suffix or ".mp4"
+    dest = upload_dir / f"{stem}{ext}"
+    if dest.exists():
+        dest = upload_dir / f"{stem}_{uuid.uuid4().hex[:6]}{ext}"
+    with open(dest, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            f.write(chunk)
+    return {"path": str(dest), "size_mb": round(dest.stat().st_size / 1e6, 1)}
 
 
 @app.post("/jobs")
@@ -384,6 +411,22 @@ async def browse_fs(path: str = "", kind: str = "video") -> dict:
         "files": files,
         "drives": drives,
     }
+
+
+@app.post("/fs/reveal")
+async def reveal_file(body: dict):
+    """在系统文件管理器中显示指定文件（macOS Finder / Windows 资源管理器 / Linux xdg-open）。"""
+    import subprocess
+    path = body.get("path", "")
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", path])
+    elif sys.platform == "win32":
+        subprocess.Popen(["explorer", f"/select,{path}"])
+    else:
+        subprocess.Popen(["xdg-open", str(Path(path).parent)])
+    return {"ok": True}
 
 
 @app.get("/downloads")

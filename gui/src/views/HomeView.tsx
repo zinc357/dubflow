@@ -1,592 +1,164 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, DownloadsSnapshot, EngineSettings, ENGINE_URL, Health, Job } from "../api";
-import { STEP_LABELS } from "../labels";
-import { loadFormPrefs, saveFormPrefs } from "../prefs";
-import DirPicker from "../components/DirPicker";
-import FilePicker from "../components/FilePicker";
-import Tooltip from "../components/Tooltip";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-// 可用模型随后端不同：mlx 只有 Apple Silicon 才有，ctranslate2 用于 Windows/Linux
-// （NVIDIA CUDA 或 CPU 兜底）。这些键名必须与引擎 downloads.CATALOG 完全一致，
-// 否则会出现「模型下载好了，引擎却找不到、转而去 HuggingFace 重下一遍」。
-const MLX_MODELS = ["tiny", "medium", "large-v3", "large-v3-turbo", "large-v3-turbo-q4"];
-
-
-const GGML_MODELS = ["ggml-tiny", "ggml-base", "ggml-small", "ggml-medium", "ggml-large-v3-turbo-q5_0"];
+const ENGINE = "http://127.0.0.1:8741";
 const SIZES = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"];
-const CT2_MODELS = [
-  "faster-whisper-tiny",
-  "faster-whisper-base",
-  "faster-whisper-small",
-  "faster-whisper-medium",
-  "faster-whisper-large-v3",
-  "faster-whisper-large-v3-turbo",
-];
-const DEFAULT_MLX_MODEL = "large-v3-turbo";
-const DEFAULT_CT2_MODEL = "faster-whisper-large-v3-turbo";
+const STEP_LABELS: Record<string, string> = {
+  probe: "探测", extract_audio: "提取音频", asr: "语音识别",
+  translate: "翻译", export: "导出字幕",
+};
 
-function isAppleBackend(health?: Health | null): boolean {
-  return health?.backend?.name === "mlx-whisper";
-}
-
-interface Props {
-  jobs: Job[];
-  onOpenJob: (id: string) => void;
-  health?: Health | null;
-}
-
-export default function HomeView({ jobs, onOpenJob, health }: Props) {
-  // 上次用过的界面选项（浏览器本地）。翻译配置不放这里，由引擎侧保管。
-  const [savedPrefs] = useState(loadFormPrefs);
-  // new-task form
+export default function App() {
+  const [health, setHealth] = useState<{ status: string; backend: { name: string; device: string } } | null>(null);
+  const [jobs, setJobs] = useState<any[]>([]);
   const [videoPath, setVideoPath] = useState("");
-  const [sourceLang, setSourceLang] = useState(savedPrefs.sourceLang ?? "");
-  const [targetLang, setTargetLang] = useState(savedPrefs.targetLang ?? "zh");
-  const [device, setDevice] = useState(savedPrefs.device ?? "auto");
-  const [size, setSize] = useState(savedPrefs.size ?? "large-v3-turbo");
-  const [translate, setTranslate] = useState(savedPrefs.translate ?? false);
-  const [trProvider, setTrProvider] = useState(savedPrefs.trProvider ?? "llm");
-  const [apiKey, setApiKey] = useState("");
-  const [apiBase, setApiBase] = useState("https://api.openai.com/v1");
-  const [apiModel, setApiModel] = useState("gpt-4o-mini");
-  const [msftKey, setMsftKey] = useState("");
-  const [msftRegion, setMsftRegion] = useState("global");
-  // 引擎侧是否已存有密钥。只回掩码 —— 输入框留空即表示沿用已保存的值。
-  const [llmKeySet, setLlmKeySet] = useState(false);
-  const [llmKeyHint, setLlmKeyHint] = useState("");
-  const [msftKeySet, setMsftKeySet] = useState(false);
-  const [msftKeyHint, setMsftKeyHint] = useState("");
-  const [subtitleVariant, setSubtitleVariant] = useState(savedPrefs.subtitleVariant ?? "bilingual");
-  // 默认不勾：不勾就什么都不落盘，要落盘得自己勾 —— 与直觉一致
-  const [saveSrt, setSaveSrt] = useState(savedPrefs.saveSrt ?? false);
-  const [embedVideo, setEmbedVideo] = useState(savedPrefs.embedVideo ?? false);
-  const [outputDir, setOutputDir] = useState(savedPrefs.outputDir ?? "");
-  const [pickDir, setPickDir] = useState(false);
-  const [pickFile, setPickFile] = useState(false);
+  const [sourceLang, setSourceLang] = useState("");
+  const [targetLang, setTargetLang] = useState("zh");
+  const [device, setDevice] = useState("auto");
+  const [size, setSize] = useState("large-v3-turbo");
+  const [translate, setTranslate] = useState(false);
+  const [trProvider, setTrProvider] = useState("google");
+  const [subtitleVariant, setSubtitleVariant] = useState("bilingual");
+  const [saveSrt, setSaveSrt] = useState(true);
+  const [embedVideo, setEmbedVideo] = useState(false);
+  const [outputDir, setOutputDir] = useState("");
   const [formError, setFormError] = useState("");
-  const [dl, setDl] = useState<DownloadsSnapshot | null>(null);
 
   useEffect(() => {
-    const t = window.setInterval(() => api.downloads().then(setDl).catch(() => {}), 2000);
-    api.downloads().then(setDl).catch(() => {});
-    return () => window.clearInterval(t);
+    const check = () =>
+      fetch(ENGINE + "/health").then(r => r.json()).then(setHealth).catch(() => setHealth(null));
+    check();
+    const th = setInterval(check, 2000);
+    const tj = setInterval(() =>
+      fetch(ENGINE + "/jobs").then(r => r.json()).then(d => setJobs(d.jobs)).catch(() => {}), 1000);
+    return () => { clearInterval(th); clearInterval(tj); };
   }, []);
-
-  // 记住表单选项：下次打开就是上次的样子
-  useEffect(() => {
-    saveFormPrefs({
-      sourceLang, targetLang, size, device, translate, trProvider,
-      subtitleVariant, saveSrt, embedVideo, outputDir,
-    });
-  }, [sourceLang, targetLang, size, device, translate, trProvider,
-      subtitleVariant, saveSrt, embedVideo, outputDir]);
-
-  const applySettings = useCallback((s: EngineSettings) => {
-    setApiBase(s.llm.base_url);
-    setApiModel(s.llm.model);
-    setLlmKeySet(s.llm.api_key_set);
-    setLlmKeyHint(s.llm.api_key_hint);
-    setMsftRegion(s.microsoft.region);
-    setMsftKeySet(s.microsoft.key_set);
-    setMsftKeyHint(s.microsoft.key_hint);
-  }, []);
-
-  // 进入页面时拉取引擎侧已保存的翻译配置
-
-  const clearSavedKey = useCallback(async (which: "llm" | "microsoft") => {
-    if (!window.confirm("清除引擎侧已保存的密钥？以后需要重新填写。")) return;
-    try {
-      const s = which === "llm"
-        ? await api.putSettings({ llm: { api_key: "" } })
-        : await api.putSettings({ microsoft: { key: "" } });
-      applySettings(s);
-      if (which === "llm") setApiKey(""); else setMsftKey("");
-    } catch (e) {
-      setFormError(String(e));
-    }
-  }, [applySettings]);
 
   const submit = useCallback(async () => {
     setFormError("");
     try {
-      // 先把翻译配置交给引擎保管（~/.dubflow/settings.json）：
-      // 密钥框留空就是「沿用已保存的」，填了才覆盖；保存成功后立刻清空输入框，
-      // 页面上不再残留明文，下次进来只显示掩码。
-      const persisted = await api.putSettings({
-        llm: {
-          base_url: apiBase,
-          model: apiModel,
-          ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-        },
-        microsoft: {
-          region: msftRegion,
-          ...(msftKey.trim() ? { key: msftKey.trim() } : {}),
-        },
-      }).catch(() => null);
-      if (persisted) {
-        applySettings(persisted);
-        setApiKey("");
-        setMsftKey("");
-      }
-
-      await api.createJob({
+      const body: any = {
         video_path: videoPath,
-        source_language: sourceLang.trim() || null,
-        target_language: targetLang.trim() || "zh",
+        source_language: sourceLang || null,
+        target_language: targetLang || "zh",
         asr: { provider: "auto", device, size },
         translation: {
-          enabled: translate,
-          provider: trProvider,
-          base_url: trProvider === "llm" ? apiBase || undefined : undefined,
-          api_key: trProvider === "llm" ? apiKey || undefined
-            : trProvider === "microsoft" ? msftKey || undefined : undefined,
-          region: trProvider === "microsoft" ? msftRegion || undefined : undefined,
-          model: trProvider === "llm" ? apiModel || undefined : undefined,
+          enabled: translate, provider: trProvider,
+          ...(trProvider === "microsoft" ? {} : {}),
         },
         export: {
-          variant: subtitleVariant,
-          // 必须原样透传复选框状态。这里原来写的是 `saveSrt || embedVideo`，
-          // 于是勾着「烧录」时即使取消勾选「保存字幕文件」，发出去的仍是 true ——
-          // 复选框形同虚设，引擎会照旧把 .srt 交付出去。
-          save_to_video_folder: saveSrt,
-          embed_video: embedVideo,
-          output_dir: outputDir.trim() || null,
+          variant: subtitleVariant, save_to_video_folder: saveSrt,
+          embed_video: embedVideo, output_dir: outputDir || null,
         },
+      };
+      const r = await fetch(ENGINE + "/jobs", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-    } catch (e) {
-      setFormError(String(e));
-    }
-  }, [videoPath, sourceLang, targetLang, size, device, translate, trProvider, apiKey, apiBase, apiModel, msftKey, msftRegion, subtitleVariant, saveSrt, embedVideo, outputDir, applySettings]);
+      if (!r.ok) setFormError(await r.text());
+    } catch (e) { setFormError(String(e)); }
+  }, [videoPath, sourceLang, targetLang, device, size, translate, trProvider, subtitleVariant, saveSrt, embedVideo, outputDir]);
 
-  const stopJob = useCallback(async (id: string) => {
-    if (!window.confirm("确定停止该任务？已完成的步骤产物会保留。")) return;
-    try {
-      await api.cancelJob(id);
-    } catch (e) {
-      setFormError(String(e));
-    }
-  }, []);
-
-  const removeJob = useCallback(async (id: string) => {
-    if (!window.confirm("确定删除该任务？其转写/字幕等中间产物将一并清除。")) return;
-    try {
-      await api.deleteJob(id);
-    } catch (e) {
-      setFormError(String(e));
-    }
-  }, []);
-
-  const clearFailed = useCallback(async () => {
-    if (!window.confirm("确定清除全部失败/已取消的任务？")) return;
-    try {
-      await api.clearFailed();
-    } catch (e) {
-      setFormError(String(e));
-    }
-  }, []);
-
-  const failedCount = jobs.filter((j) => j.status === "failed" || j.status === "cancelled").length;
-
-  const overall = (j: Job) => {
-    const vals = Object.values(j.steps);
-    const done = vals.filter((s) => s.status === "done" || s.status === "skipped").length;
-    const running = vals.find((s) => s.status === "running");
-    return (done / vals.length) * 100 + (running ? running.progress * (100 / vals.length) : 0);
+  const stopJob = async (id: string) => {
+    await fetch(`${ENGINE}/jobs/${id}/cancel`, { method: "POST" }).catch(() => {});
+  };
+  const removeJob = async (id: string) => {
+    if (!window.confirm("确定删除？")) return;
+    await fetch(`${ENGINE}/jobs/${id}`, { method: "DELETE" }).catch(() => {});
+  };
+  const clearFailed = async () => {
+    if (!window.confirm("清除全部失败任务？")) return;
+    await fetch(`${ENGINE}/jobs/clear-failed`, { method: "POST" }).catch(() => {});
   };
 
   return (
-    <>
-      <h2>新建任务</h2>
-      <div className="panel">
-        <div className="row">
-          <Tooltip
-            className="grow"
-            side="bottom"
-            text="要处理的视频文件完整路径。可在文件管理器里 Shift+右键 →「复制文件地址」取得；粘贴时注意不要重复粘贴成两段。"
-          >
-            <input
-              type="text"
-              placeholder="视频绝对路径，也可点右侧按钮选择"
-              value={videoPath}
-              onChange={(e) => setVideoPath(e.target.value)}
-            />
-            <button style={{ padding: "4px 12px" }} onClick={() => setPickFile(true)}>
-              📂 选择
-            </button>
-          </Tooltip>
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ margin: 0 }}>DubFlow 视频翻译</h1>
+        <span style={{
+          padding: "3px 10px", borderRadius: 20, fontSize: 12,
+          background: health ? "#d4edda" : "#f8d7da",
+          color: health ? "#155724" : "#721c24",
+        }}>
+          {health ? `引擎已连接 · ${health.backend?.name}/${health.backend?.device}` : "引擎未连接"}
+        </span>
+      </div>
+      <p style={{ color: "#666" }}>流水线：导入 → 提取音频 → 语音识别（GPU）→ 翻译 → 导出 SRT。</p>
+
+      <h3>新建任务</h3>
+      <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <input style={{ flex: 1, padding: "6px 10px" }} placeholder="视频绝对路径"
+            value={videoPath} onChange={e => setVideoPath(e.target.value)} />
         </div>
-        {pickFile && (
-          <FilePicker
-            initialPath={videoPath ? videoPath.replace(/[/\\][^/\\]*$/, "") : undefined}
-            onPick={(p) => {
-              setVideoPath(p);
-              setPickFile(false);
-            }}
-            onClose={() => setPickFile(false)}
-          />
-        )}
-        <div className="row" style={{ marginTop: 10 }}>
-          <Tooltip text="视频里的说话语言。不确定就保持「自动检测」，模型判断得很准。" side="bottom">
-            <label className="muted">源语言</label>
-          </Tooltip>
-          <Tooltip text="手动指定源语言可以略快且更稳，适合口音重或中英混杂的内容。" side="bottom">
-            <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)}>
-              <option value="">自动检测</option>
-              {["en", "zh", "ja", "ko", "de", "fr", "es", "ru"].map((l) => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
-          </Tooltip>
-          <Tooltip text="翻译的目标语言代码，例如 zh（中文）、en（英文）、ja（日文）。" side="bottom">
-            <label className="muted">目标语言</label>
-          </Tooltip>
-          <Tooltip text="字幕要翻译成的语言代码。开启翻译后按这个值输出译文。" side="bottom">
-            <input
-              type="text"
-              style={{ flex: 0, width: 60 }}
-              value={targetLang}
-              onChange={(e) => setTargetLang(e.target.value)}
-            />
-          </Tooltip>
-          <Tooltip text="运算设备：自动 = 有显卡用显卡，否则 CPU。选 GPU 后由引擎按显卡型号自动路由（NVIDIA→CUDA，AMD/Intel→Vulkan）。" side="bottom">
-            <label className="muted">运算设备</label>
-          </Tooltip>
-          <select value={device} onChange={(e) => setDevice(e.target.value)}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+          <label>源语言</label>
+          <select value={sourceLang} onChange={e => setSourceLang(e.target.value)}>
+            <option value="">自动检测</option>
+            {["en","zh","ja","ko","de","fr","es","ru"].map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <label>目标语言</label>
+          <input style={{ width: 50 }} value={targetLang} onChange={e => setTargetLang(e.target.value)} />
+          <label>运算设备</label>
+          <select value={device} onChange={e => setDevice(e.target.value)}>
             <option value="auto">自动</option>
-            <option value="gpu">GPU（显卡加速）</option>
+            <option value="gpu">GPU</option>
             <option value="cpu">CPU</option>
           </select>
-          <Tooltip text="模型大小：越大越准也越慢。large-v3-turbo 是质量与速度的平衡点。首次使用需在下方「模型与依赖」里下载。" side="bottom">
-            <label className="muted">模型大小</label>
-          </Tooltip>
-          <select value={size} onChange={(e) => setSize(e.target.value)}>
-            {SIZES.map((m) => <option key={m} value={m}>{m}</option>)}
+          <label>模型大小</label>
+          <select value={size} onChange={e => setSize(e.target.value)}>
+            {["tiny","base","small","medium","large-v3","large-v3-turbo"].map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-          <Tooltip text="开启后会在识别完成后调用翻译服务生成译文字幕，需要填好下面的 API 信息。" side="bottom">
-            <label className="row" style={{ gap: 4 }}>
-              <input
-                type="checkbox"
-                style={{ width: "auto" }}
-                checked={translate}
-                onChange={(e) => setTranslate(e.target.checked)}
-              />
-              <span className="muted">翻译</span>
-            </label>
-          </Tooltip>
-          {translate && (
-            <Tooltip text="LLM 翻译质量最好但需要 API Key；谷歌免费无需 Key，但大陆要代理且易被限流；微软需要 Azure 订阅密钥。" side="bottom">
-              <select value={trProvider} onChange={(e) => setTrProvider(e.target.value)}>
-                <option value="llm">LLM 翻译</option>
-                <option value="google">谷歌翻译</option>
-                <option value="microsoft">微软翻译</option>
-              </select>
-            </Tooltip>
-          )}
         </div>
-        {translate && trProvider === "llm" && (
-          <div className="row" style={{ marginTop: 10 }}>
-            <Tooltip style={{ flex: 2 }} side="bottom" text="OpenAI 兼容接口地址，务必带上版本路径。例：https://api.deepseek.com/v1">
-              <input type="text" value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="API Base URL" />
-            </Tooltip>
-            <Tooltip style={{ flex: 1 }} side="bottom" text="模型名。例：deepseek-chat、qwen-plus、glm-4-flash。">
-              <input type="text" value={apiModel} onChange={(e) => setApiModel(e.target.value)} placeholder="模型名" />
-            </Tooltip>
-            <Tooltip
-              style={{ flex: 1 }}
-              side="bottom"
-              text={
-                llmKeySet
-                  ? `已保存在引擎侧（${llmKeyHint}），此处留空即表示继续使用它。密钥只回掩码，不会以明文出现在页面上。`
-                  : "服务商提供的密钥。填过一次后会被引擎记住，下次打开无需重填。"
-              }
-            >
-              <input
-                type="text"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={llmKeySet ? `已保存 ${llmKeyHint} · 留空即用` : "API Key"}
-              />
-            </Tooltip>
-            {llmKeySet && (
-              <Tooltip side="bottom" text="清除引擎侧已保存的 API Key，清除后需要重新填写。">
-                <button style={{ padding: "4px 10px" }} onClick={() => clearSavedKey("llm")}>
-                  清除
-                </button>
-              </Tooltip>
-            )}
-          </div>
-        )}
-        {translate && trProvider === "microsoft" && (
-          <div className="row" style={{ marginTop: 10 }}>
-            <Tooltip
-              style={{ flex: 2 }}
-              side="bottom"
-              text={
-                msftKeySet
-                  ? `已保存在引擎侧（${msftKeyHint}），此处留空即表示继续使用它。密钥只回掩码，不会以明文出现在页面上。`
-                  : "Azure 门户里 Translator 资源的密钥，免费 F0 档即可（每月 200 万字符）。填过一次后会被引擎记住。"
-              }
-            >
-              <input
-                type="text"
-                value={msftKey}
-                onChange={(e) => setMsftKey(e.target.value)}
-                placeholder={msftKeySet ? `已保存 ${msftKeyHint} · 留空即用` : "Azure Translator Key（免费 F0 档即可）"}
-              />
-            </Tooltip>
-            <Tooltip
-              style={{ flex: 0, width: 120 }}
-              side="bottom"
-              text="资源所在的区域标识，例如 global、eastasia。填错会返回 401。"
-            >
-              <input type="text" value={msftRegion} onChange={(e) => setMsftRegion(e.target.value)} placeholder="区域，如 global" />
-            </Tooltip>
-            {msftKeySet && (
-              <Tooltip side="bottom" text="清除引擎侧已保存的 Azure 密钥，清除后需要重新填写。">
-                <button style={{ padding: "4px 10px" }} onClick={() => clearSavedKey("microsoft")}>
-                  清除
-                </button>
-              </Tooltip>
-            )}
-          </div>
-        )}
-        {translate && trProvider === "google" && (
-          <div className="muted" style={{ marginTop: 8 }}>谷歌免费接口，经系统代理访问，无需 key。</div>
-        )}
-        <div className="row" style={{ marginTop: 10 }}>
-          <Tooltip text="选择要导出的字幕形式。注意「仅译文」和「双语对照」都必须先开启上面的翻译。" side="bottom">
-            <label className="muted">字幕类型</label>
-          </Tooltip>
-          <Tooltip text="双语对照 = 原文一行 + 译文一行；仅译文 = 只保留翻译结果；仅原文 = 只保留识别结果。" side="bottom">
-            <select value={subtitleVariant} onChange={(e) => setSubtitleVariant(e.target.value)}>
-              <option value="bilingual">双语对照</option>
-              <option value="target">仅译文</option>
-              <option value="source">仅原文</option>
-            </select>
-          </Tooltip>
-          <Tooltip text="勾选后会把字幕文件复制一份到输出目录，视频本身不动。不勾则不落任何字幕文件。" side="bottom">
-            <label className="row" style={{ gap: 4 }}>
-              <input
-                type="checkbox"
-                style={{ width: "auto" }}
-                checked={saveSrt}
-                onChange={(e) => setSaveSrt(e.target.checked)}
-              />
-              <span className="muted">保存字幕文件</span>
-            </label>
-          </Tooltip>
-          <Tooltip text="用 ffmpeg 把字幕烧进画面，生成一个新视频。需要重新编码，比较耗时。它与「保存字幕文件」互不影响：只要这份烧录视频，就不必勾保存字幕。" side="bottom">
-            <label className="row" style={{ gap: 4 }}>
-              <input
-                type="checkbox"
-                style={{ width: "auto" }}
-                checked={embedVideo}
-                onChange={(e) => setEmbedVideo(e.target.checked)}
-              />
-              <span className="muted">烧录硬字幕生成新视频</span>
-            </label>
-          </Tooltip>
-        </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <Tooltip text="字幕文件和硬字幕视频的保存位置。留空则保存到原视频所在文件夹。" side="bottom">
-            <label className="muted">输出目录</label>
-          </Tooltip>
-          <input
-            type="text"
-            value={outputDir}
-            placeholder="留空 = 原视频所在文件夹"
-            onChange={(e) => setOutputDir(e.target.value)}
-          />
-          <button className="ghost" onClick={() => setPickDir(true)}>
-            浏览…
-          </button>
-          {outputDir && (
-            <button className="ghost" onClick={() => setOutputDir("")}>
-              恢复默认
-            </button>
-          )}
-        </div>
-        <div className="row" style={{ marginTop: 12 }}>
-          <Tooltip text="建立任务并立即开始处理。重复处理同一个视频会从头再跑一遍全部步骤。" side="bottom">
-            <button disabled={!videoPath.trim()} onClick={submit}>
-              开始处理
-            </button>
-          </Tooltip>
-          {formError && <span className="error">{formError}</span>}
+        <div style={{ marginTop: 12 }}>
+          <button disabled={!videoPath.trim()} onClick={submit}>开始处理</button>
+          {formError && <span style={{ color: "red", marginLeft: 8 }}>{formError}</span>}
         </div>
       </div>
 
-      <div className="row" style={{ justifyContent: "space-between", margin: "18px 0 8px" }}>
-        <h2 style={{ margin: 0 }}>任务列表</h2>
-        {failedCount > 0 && (
-          <Tooltip align="right" side="bottom" text="一次性删除所有失败和已停止的任务，连同它们的中间产物。">
-            <button style={{ padding: "2px 10px" }} onClick={clearFailed}>
-              清除失败任务（{failedCount}）
-            </button>
-          </Tooltip>
-        )}
-      </div>
-      <div className="panel">
-        {jobs.length === 0 && <span className="muted">暂无任务</span>}
-        {jobs.map((j) => {
-          const vals = Object.values(j.steps);
-          const doneCount = vals.filter((s) => s.status === "done" || s.status === "skipped").length;
-          const running = vals.find((s) => s.status === "running");
-          const pct = (doneCount / vals.length) * 100 + (running ? running.progress * (100 / vals.length) : 0);
-          const canEdit = !!j.artifacts?.transcript;
+      <h3>任务列表</h3>
+      <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
+        {jobs.length === 0 && <p style={{ color: "#999" }}>暂无任务</p>}
+        {jobs.map(j => {
+          const vals = Object.values(j.steps as Record<string, { status: string; progress: number; detail: string }>);
+          const done = vals.filter(s => s.status === "done" || s.status === "skipped").length;
+          const running = vals.find(s => s.status === "running");
+          const pct = (done / vals.length) * 100 + (running ? running.progress * (100 / vals.length) : 0);
           return (
-            <div className="job" key={j.id}>
-              <div className="file">
-                {j.video_path}
-                <span className="muted" style={{ marginLeft: 8 }}>#{j.id}</span>
-              </div>
-              <div className="steps">
-                {Object.entries(j.steps).map(([k, s]) => (
-                  <span key={k} className={`step ${s.status}`}>
-                    {STEP_LABELS[k] ?? k}·{s.status}
-                    {s.status === "running" ? ` ${Math.round(s.progress * 100)}%` : ""}
+            <div key={j.id} style={{ borderBottom: "1px solid #eee", padding: "8px 0" }}>
+              <div style={{ fontWeight: 600 }}>{j.video_path} <small style={{ color: "#999" }}>#{j.id}</small></div>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", margin: "6px 0" }}>
+                {Object.entries(j.steps as Record<string, { status: string; progress: number }>).map(([k, s]) => (
+                  <span key={k} style={{
+                    padding: "2px 8px", borderRadius: 4, fontSize: 12,
+                    background: s.status === "done" ? "#d4edda" : s.status === "running" ? "#cce5ff" : s.status === "failed" ? "#f8d7da" : "#eee",
+                  }}>
+                    {k}:{s.status}{s.status === "running" ? ` ${Math.round(s.progress * 100)}%` : ""}
                   </span>
                 ))}
-                {j.backend && "name" in j.backend && (
-                  <span className="step">{j.backend.name}/{j.backend.device}</span>
-                )}
-                <span style={{ marginLeft: "auto" }} />
-                {(j.status === "running" || j.status === "queued") && (
-                  <Tooltip
-                    align="right"
-                    side="bottom"
-                    text="停止该任务。识别会在当前这段音频处理完后中断；已经完成的步骤产物都会保留。"
-                  >
-                    <button
-                      className="ghost"
-                      style={{ padding: "2px 10px" }}
-                      onClick={() => stopJob(j.id)}
-                    >
-                      停止
-                    </button>
-                  </Tooltip>
-                )}
-                <Tooltip
-                  align="right"
-                  side="bottom"
-                  text={
-                    canEdit
-                      ? "打开字幕工作台：逐句校对文本、播放原声、拆分合并，再重新导出。"
-                      : "语音识别完成后才能编辑字幕。"
-                  }
-                >
-                  <button
-                    style={{ padding: "2px 10px" }}
-                    disabled={!canEdit}
-                    onClick={() => onOpenJob(j.id)}
-                  >
-                    编辑字幕
-                  </button>
-                </Tooltip>
-                {(j.status === "failed" || j.status === "cancelled") && (
-                  <Tooltip
-                    align="right"
-                    side="bottom"
-                    text="删除该任务，并清掉它在 ~/.dubflow/jobs/ 下的中间产物。只有失败或已停止的任务可以删除。"
-                  >
-                    <button
-                      style={{ padding: "2px 10px" }}
-                      onClick={() => removeJob(j.id)}
-                    >
-                      删除
-                    </button>
-                  </Tooltip>
-                )}
               </div>
-              <div className="bar"><div style={{ width: `${pct}%` }} /></div>
-              {j.error && <div className="error">{j.error}</div>}
+              <div style={{ background: "#eee", borderRadius: 4, height: 6, marginTop: 6 }}>
+                <div style={{ width: `${pct}%`, background: "#4f8cff", borderRadius: 4, height: "100%", transition: "width .3s" }} />
+              </div>
+              {j.error && <p style={{ color: "red", fontSize: 12 }}>{j.error}</p>}
             </div>
           );
         })}
       </div>
 
-      <details>
-        <summary className="muted" style={{ cursor: "pointer", margin: "18px 0 8px" }}>模型与依赖</summary>
-        <div className="panel">
-          <div className="row">
-            <b>ffmpeg（捆绑）</b>
-            {dl?.ffmpeg.installed ? (
-              <span className="badge ok">已就绪</span>
-            ) : (
-              <span className="badge err">未下载</span>
-            )}
-            {dl && !dl.ffmpeg.installed && dl.ffmpeg.status !== "downloading" && (
-              <Tooltip side="bottom" text="下载带 libass 的静态 ffmpeg 到项目 bin/ 目录。如果系统 PATH 里已经装了完整版 ffmpeg，其实不必下载。">
-                <button onClick={() => api.downloadFfmpeg()}>下载当前平台 ffmpeg</button>
-              </Tooltip>
-            )}
-            {dl && dl.ffmpeg.status === "downloading" && (
-              <span className="muted">
-                下载中 {Math.round(dl.ffmpeg.progress * 100)}% {dl.ffmpeg.detail}
-              </span>
-            )}
-            {dl && dl.ffmpeg.status === "failed" && (
-              <span className="error">{dl.ffmpeg.detail}</span>
-            )}
-          </div>
-          <table style={{ marginTop: 12 }}>
-            <thead>
-              <tr><th>模型</th><th>后端</th><th>磁盘占用</th><th>状态</th><th></th></tr>
-            </thead>
-            <tbody>
-              {dl?.models
-                .filter((m) => isAppleBackend(health) === (m.backend === "mlx"))
-                .map((m) => (
-                <tr key={m.key}>
-                  <td>{m.key}</td>
-                  <td>{m.backend}</td>
-                  <td>{m.downloaded ? `${m.size_mb} MB` : `约 ${m.dl_size_mb} MB`}</td>
-                  <td>
-                    {m.downloaded
-                      ? "已下载"
-                      : m.status === "downloading"
-                      ? `下载中 ${Math.round(m.progress * 100)}%`
-                      : m.status === "failed"
-                      ? <span className="error">失败: {m.detail}</span>
-                      : "未下载"}
-                  </td>
-                  <td>
-                    {!m.downloaded && (
-                      <Tooltip
-                        align="right"
-                        side="bottom"
-                        text={`下载 ${m.key} 到 ~/.dubflow/models/ 下。下载源会按 ModelScope → HF 镜像依次尝试。`}
-                      >
-                        <button
-                          style={{ padding: "2px 10px" }}
-                          disabled={m.status === "downloading"}
-                          onClick={() => api.downloadModel(m.key)}
-                        >
-                          下载
-                        </button>
-                      </Tooltip>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            下载源自动优先 ModelScope（国内直连）→ HF 镜像。
-            <b> mlx</b> 仅 Apple Silicon 可用；<b>ctranslate2</b> 用于 Windows/Linux（NVIDIA CUDA，检测不到显卡时自动回落 CPU int8）；
-            <b>whisper.cpp</b> 面向 AMD/Intel 的 Vulkan 路线。
-            模型名需与上方「识别模型」下拉里的选项一致，引擎才能命中已下载的本地模型。
-          </p>
-        </div>
-      </details>
-
-      {pickDir && (
-        <DirPicker
-          value={outputDir || undefined}
-          onPick={setOutputDir}
-          onClose={() => setPickDir(false)}
-        />
-      )}
-    </>
+      <div style={{ marginTop: 20 }}>
+        <button onClick={clearFailed} style={{ background: "#6c757d", color: "#fff", border: "none", borderRadius: 4, padding: "4px 12px" }}>
+          清除失败任务
+        </button>
+        <button onClick={async () => {
+          if (!window.confirm("确定删除所有任务？")) return;
+          for (const j of jobs) {
+            if (j.status === "failed" || j.status === "cancelled") await fetch(`${ENGINE}/jobs/${j.id}`, { method: "DELETE" });
+          }
+          window.location.reload();
+        }} style={{ marginLeft: 8, background: "#6c757d", color: "#fff", border: "none", borderRadius: 4, padding: "4px 12px" }}>
+          清除全部任务
+        </button>
+      </div>
+    </div>
   );
 }
