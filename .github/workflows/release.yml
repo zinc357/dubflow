@@ -226,8 +226,21 @@ jobs:
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "DubFlow $GITHUB_REF_NAME" \
-            --generate-notes \
-            release/* || gh release upload "$GITHUB_REF_NAME" release/* --clobber
+          # release may already exist (rerun after partial upload) - idempotent create
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" \
+              --title "DubFlow $GITHUB_REF_NAME" \
+              --generate-notes
+          # assets are large (up to ~370MB each); retry uploads to survive
+          # timeouts / secondary rate limits
+          for i in 1 2 3 4 5; do
+            if gh release upload "$GITHUB_REF_NAME" release/* --clobber; then
+              break
+            fi
+            if [ "$i" = "5" ]; then
+              echo "upload failed after 5 attempts"; exit 1
+            fi
+            echo "upload attempt $i failed, retrying in 60s..."
+            sleep 60
+          done
           gh release view "$GITHUB_REF_NAME" --json url,assets
