@@ -97,7 +97,7 @@ class WhisperCppProvider(ASRProvider):
         model_path = Path(model)
         with open(model_path, "rb") as f:
             magic = f.read(4)
-        if magic != b"ggml":
+        if magic not in (b"ggml", b"lmgg"):  # lmgg = 同一 magic 的小端字节序
             raise ASRError(
                 f"{model_path.name} 不是 whisper.cpp 的 ggml 模型"
                 "（可能是 CTranslate2 格式——那是 faster-whisper 专用格式）。"
@@ -126,11 +126,11 @@ class WhisperCppProvider(ASRProvider):
         if not json_path.is_file():
             raise ASRError("whisper.cpp did not produce JSON output")
         data = json.loads(json_path.read_text(encoding="utf-8"))
-        # whisper.cpp JSON: offsets are in centiseconds
+        # whisper.cpp JSON: offsets are in milliseconds
         segments = [
             Segment(
-                start=float(item["offsets"]["from"]) / 100.0,
-                end=float(item["offsets"]["to"]) / 100.0,
+                start=float(item["offsets"]["from"]) / 1000.0,
+                end=float(item["offsets"]["to"]) / 1000.0,
                 text=str(item.get("text", "")).strip(),
             )
             for item in data.get("transcription", [])
