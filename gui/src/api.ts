@@ -21,6 +21,7 @@ export interface StepStatus {
 
 export interface Job {
   id: string;
+  paused?: boolean;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   video_path: string;
   source_language: string | null;

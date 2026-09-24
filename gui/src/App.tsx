@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import WorkbenchView from "./views/WorkbenchView";
+import FilePicker from "./components/FilePicker";
 
 const ENGINE = "http://127.0.0.1:8741";
 
@@ -23,7 +24,6 @@ export default function App() {
 
   const [health, setHealth] = useState<Health | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPath, setVideoPath] = useState("");
   const [device, setDevice] = useState(savedPrefs.device ?? "auto");
   const [size, setSize] = useState(savedPrefs.size ?? "large-v3-turbo");
@@ -41,6 +41,7 @@ export default function App() {
   const [embedVideo, setEmbedVideo] = useState(savedPrefs.embedVideo ?? false);
   const [outputDir, setOutputDir] = useState(savedPrefs.outputDir ?? "");
   const [error, setError] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [dl, setDl] = useState<{models: Array<{key:string; backend:string; downloaded:boolean; size_mb:number; dl_size_mb:number; status:string; progress:number}>} | null>(null);
 
@@ -66,18 +67,10 @@ export default function App() {
 
   const startJob = useCallback(async () => {
     setError("");
-    if (!videoFile && !videoPath.trim()) return;
+    if (!videoPath.trim()) return;
     let serverPath = "";
     try {
-      if (videoFile) {
-        const fd = new FormData();
-        fd.append("file", videoFile);
-        const up = await fetch(ENGINE + "/upload", { method: "POST", body: fd });
-        const upData = await up.json();
-        serverPath = upData.path;
-      } else {
-        serverPath = videoPath.trim();
-      }
+      serverPath = videoPath.trim();
       const body = {
         video_path: serverPath,
         source_language: sourceLang || null,
@@ -101,7 +94,7 @@ export default function App() {
       });
       if (!r.ok) setError(await r.text());
     } catch (e) { setError(String(e)); }
-  }, [videoFile, videoPath, device, size, translate, trProvider, sourceLang, targetLang, apiBase, apiModel, apiKey, msftKey, msftRegion, subtitleVariant, saveSrt, embedVideo, outputDir]);
+  }, [videoPath, device, size, translate, trProvider, sourceLang, targetLang, apiBase, apiModel, apiKey, msftKey, msftRegion, subtitleVariant, saveSrt, embedVideo, outputDir]);
 
   const revealFile = useCallback(async (path: string) => {
     await fetch(ENGINE + "/fs/reveal", {
@@ -110,6 +103,15 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+  const stopJob = async (id: string) => {
+    await fetch(`${ENGINE}/jobs/${id}/cancel`, { method: "POST" }).catch(() => {});
+  };
+  const pauseJob = async (id: string) => {
+    await fetch(`${ENGINE}/jobs/${id}/pause`, { method: "POST" }).catch(() => {});
+  };
+  const resumeJob = async (id: string) => {
+    await fetch(`${ENGINE}/jobs/${id}/resume`, { method: "POST" }).catch(() => {});
+  };
   const deleteJob = useCallback(async (id: string) => {
     if (!window.confirm("确定删除该任务？中间产物将一并清除。")) return;
     await fetch(ENGINE + "/jobs/" + id, { method: "DELETE" }).catch(() => {});
@@ -139,20 +141,15 @@ export default function App() {
       <h3>新建任务</h3>
       <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <input type="text" placeholder="视频路径（也可点右侧上传）" value={videoPath}
-            onChange={e => { setVideoPath(e.target.value); setVideoFile(null); }}
+          <input type="text" placeholder="视频绝对路径（点右侧浏览选择）" value={videoPath}
+            onChange={e => setVideoPath(e.target.value)}
             style={{ flex: 1, padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4 }} />
-          <label style={{
+          <button style={{
             padding: "6px 16px", background: "#4f8cff", color: "#fff",
-            borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap", fontSize: 14,
-          }}>
-            📂 上传
-            <input type="file" accept="video/*,audio/*" style={{ display: "none" }}
-              onChange={e => {
-                const f = e.target.files?.[0];
-                if (f) { setVideoFile(f); setVideoPath(f.name); }
-              }} />
-          </label>
+            border: "none", borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap", fontSize: 14,
+          }} onClick={() => setPickerOpen(true)}>
+            📂 浏览文件
+          </button>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
           <label>源语言</label>
@@ -221,6 +218,31 @@ export default function App() {
               <option value="microsoft">微软</option>
             </select>
           )}
+        </div>
+        {translate && trProvider === "llm" && (
+          <div style={{ marginTop: 8, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 6, background: "#fafbfc" }}>
+            <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>LLM 翻译设置（兼容任意 OpenAI 兼容接口）。Base URL 需以 <b>/v1</b> 结尾，不要带 /chat/completions：</div>
+            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>OpenAI: https://api.openai.com/v1 · DeepSeek: https://api.deepseek.com/v1 · Ollama 本地: http://127.0.0.1:11434/v1</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input type="text" placeholder="Base URL，如 https://api.openai.com/v1" value={apiBase} onChange={e => setApiBase(e.target.value)} style={{ flex: 2, minWidth: 220, padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4 }} />
+              <input type="text" placeholder="模型名，如 gpt-4o-mini / deepseek-chat" value={apiModel} onChange={e => setApiModel(e.target.value)} style={{ flex: 1, minWidth: 160, padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4 }} />
+              <input type="password" placeholder="API Key（本地 Ollama 可留空）" value={apiKey} onChange={e => setApiKey(e.target.value)} style={{ flex: 1, minWidth: 160, padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4 }} />
+            </div>
+          </div>
+        )}
+        {translate && trProvider === "microsoft" && (
+          <div style={{ marginTop: 8, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 6, background: "#fafbfc" }}>
+            <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>微软翻译设置（Azure Translator，免费 F0 层即可）</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input type="password" placeholder="订阅密钥（Azure 门户获取）" value={msftKey} onChange={e => setMsftKey(e.target.value)} style={{ flex: 2, minWidth: 220, padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4 }} />
+              <input type="text" placeholder="区域，如 global / eastasia" value={msftRegion} onChange={e => setMsftRegion(e.target.value)} style={{ flex: 1, minWidth: 140, padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4 }} />
+            </div>
+          </div>
+        )}
+        {translate && trProvider === "google" && (
+          <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>谷歌翻译：免费公共接口，无需配置（大陆网络不可达时请改用微软或 LLM）。</div>
+        )}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
           <label>字幕类型</label>
           <select value={translate ? subtitleVariant : "source"} onChange={e => setSubtitleVariant(e.target.value)}>
             <option value="source">仅原文</option>
@@ -237,7 +259,7 @@ export default function App() {
             style={{ flex: 1, padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4 }} />
         </div>
         <div style={{ marginTop: 12 }}>
-          <button disabled={!videoFile && !videoPath.trim()} onClick={startJob}>开始处理</button>
+<button disabled={!videoPath.trim()} onClick={startJob}>开始处理</button>
           {error && <span style={{ color: "red", marginLeft: 8 }}>{error}</span>}
         </div>
       </div>
@@ -256,7 +278,17 @@ export default function App() {
                   {STEP_LABELS[k] ?? k}·{STATUS_LABELS[s.status] ?? s.status}{s.status === "running" ? ` ${Math.round(s.progress * 100)}%` : ""}
                 </span>
               ))}
+              {j.paused && (
+                <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 12, background: "#e0a800", color: "#fff", fontWeight: 500 }}>
+                  ⏸ 已暂停（当前批次完成后生效）
+                </span>
+              )}
             </div>
+              {j.error && (
+                <div style={{ marginTop: 6, padding: "6px 10px", background: "rgba(220,53,69,0.12)", border: "1px solid #dc3545", borderRadius: 4, color: "#f5c2c7", fontSize: 12, wordBreak: "break-all" }}>
+                  ⚠ {j.error}
+                </div>
+              )}
             <div style={{ marginTop: 4, textAlign: "right" }}>
               {j.status === "done" && j.artifacts?.transcript && (
                 <button
@@ -291,6 +323,27 @@ export default function App() {
                   🎬 硬字幕视频
                 </button>
               )}
+              {(j.status === "running" || j.status === "queued") && !j.paused && (
+                <button
+                  onClick={() => pauseJob(j.id)}
+                  style={{ padding: "2px 10px", border: "none", borderRadius: 4, background: "#ffc107", color: "#fff", cursor: "pointer", fontSize: 12, marginRight: 4 }}>
+                  ⏸ 暂停
+                </button>
+              )}
+              {j.paused && (
+                <button
+                  onClick={() => resumeJob(j.id)}
+                  style={{ padding: "2px 10px", border: "none", borderRadius: 4, background: "#28a745", color: "#fff", cursor: "pointer", fontSize: 12, marginRight: 4 }}>
+                  ▶ 恢复
+                </button>
+              )}
+              {(j.status === "running" || j.status === "queued") && (
+                <button
+                  onClick={() => stopJob(j.id)}
+                  style={{ padding: "2px 10px", border: "none", borderRadius: 4, background: "#dc3545", color: "#fff", cursor: "pointer", fontSize: 12, marginRight: 4 }}>
+                  ⏹ 停止
+                </button>
+              )}
               <button
                 onClick={() => deleteJob(j.id)}
                 style={{
@@ -304,6 +357,12 @@ export default function App() {
           </div>
         ))}
       </div>
+      {pickerOpen && (
+        <FilePicker
+          onPick={(p) => setVideoPath(p)}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }
