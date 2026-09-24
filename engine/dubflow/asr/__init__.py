@@ -139,6 +139,7 @@ def resolve_asr(device: str = "auto", size: str = "large-v3-turbo") -> tuple:
         "base": "ggml-base",
         "small": "ggml-small",
         "medium": "ggml-medium",
+        "large-v2": "ggml-large-v2",
         "large-v3-turbo": "ggml-large-v3-turbo-q5_0",
     }
 

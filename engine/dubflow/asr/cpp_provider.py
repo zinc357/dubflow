@@ -12,6 +12,8 @@ Windows/Linux 机器上均可安全尝试。
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter, deque
 import platform
 import shutil
 import subprocess
@@ -48,6 +50,52 @@ def binary_path() -> Optional[Path]:
     return None
     which = shutil.which("whisper-cli")
     return Path(which) if which else None
+
+
+_HALLUCINATION_MIN_COUNT = 10
+
+
+def _norm_text(t: str) -> str:
+    """Strip whitespace/punctuation so near-identical repeats compare equal."""
+    return re.sub(r"[\s、。！？!?.,，．·・「」『』()（）\\-]", "", t or "")
+
+
+def _filter_hallucinations(segments):
+    """Whisper loops on music/BGM, emitting the same phrase for minutes.
+
+    1) collapse consecutive identical texts (keep the first)
+    2) drop texts repeated globally >= _HALLUCINATION_MIN_COUNT times —
+       real dialogue almost never repeats verbatim that often
+    """
+    if not segments:
+        return segments
+    collapsed = []
+    for s in segments:
+        if collapsed and _norm_text(s.text) and _norm_text(s.text) == _norm_text(collapsed[-1].text):
+            continue
+        collapsed.append(s)
+    counts = Counter(_norm_text(s.text) for s in collapsed if _norm_text(s.text))
+    threshold = max(_HALLUCINATION_MIN_COUNT, int(len(collapsed) * 0.02))
+    hallucinated = {t for t, c in counts.items() if c >= threshold}
+    if hallucinated:
+        collapsed = [s for s in collapsed if _norm_text(s.text) not in hallucinated]
+    return collapsed
+
+
+def _collapse_repeats(segments):
+    """Merge runs of consecutive identical texts into one segment.
+
+    Only touches back-to-back duplicates (whisper phrase-loop artifacts);
+    scattered repetitions (real shouts appearing throughout the film) are
+    preserved verbatim.
+    """
+    out = []
+    for s in segments:
+        if out and _norm_text(s.text) and _norm_text(s.text) == _norm_text(out[-1].text):
+            out[-1].end = max(out[-1].end, s.end)  # extend coverage
+            continue
+        out.append(s)
+    return out
 
 
 class WhisperCppProvider(ASRProvider):
@@ -104,20 +152,68 @@ class WhisperCppProvider(ASRProvider):
                 "A 卡 Vulkan 请在「模型与依赖」面板下载 ggml-* 模型。"
             )
 
+        # standalone quick language detection for a transparent, reusable hint
+        detected = None
+        if not language:
+            try:
+                if progress:
+                    progress(0.03, "detecting language")
+                dproc = subprocess.run(
+                    [binary, "-m", model, "-f", str(audio_path), "-dl"],
+                    capture_output=True, text=True, timeout=600,
+                )
+                for dline in (dproc.stdout or "").splitlines():
+                    if "detected language" in dline:
+                        tail = dline.split("=")[-1].strip()
+                        detected = tail.split()[0] if tail else None
+            except Exception:
+                detected = None
+        lang = language or detected or "auto"
+
         cmd = [
             binary, "-m", model, "-f", str(audio_path),
-            "-l", language or "auto",
+            "-l", lang,
+            "-pp",  # print progress to stderr (progress = NN%)
+            "-nf",  # no temperature fallback (WhisperJAV: temperature=[0.0])
+            "-sns",  # suppress non-speech tokens
+            "-mc", "0",  # no context carry-over (WhisperJAV: condition_on_previous_text=False)
+            "-nth", "0.54",  # no-speech gate (WhisperJAV conservative preset)
+            "-lpt", "-1.00",  # logprob threshold (WhisperJAV uniform)
+            "-bs", "2",  # beam size (WhisperJAV: 95% of gain at half compute)
+            "-bo", "2",  # best-of (WhisperJAV conservative)
             "-oj", "-of", str(out_prefix),
         ]
+        # music/BGM-heavy tracks cause repetition hallucinations; skip
+        # non-speech segments via silero VAD when the model is present
+        vad_model = settings.models_dir / "ggml-silero-v5.1.2.bin"
+        if vad_model.is_file():
+            # 0.5 is the proven value: high-energy BGM in this content type
+            # floods the decoder at lower thresholds and triggers phrase loops
+            cmd += ["--vad", "-vm", str(vad_model), "-vt", "0.5"]
         try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=7200,
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace",
             )
-        except subprocess.TimeoutExpired as e:
-            raise ASRError("whisper.cpp transcription timed out") from e
+        except OSError as e:
+            raise ASRError(f"whisper.cpp failed to start: {e}")
+        assert proc.stderr is not None
+        err_tail: deque = deque(maxlen=8)
+        for line in proc.stderr:
+            line = line.strip()
+            if line:
+                err_tail.append(line)
+            # whisper.cpp -pp prints "... progress =  42%" on stderr
+            if "progress =" in line and progress:
+                try:
+                    pct = int(line.split("progress =")[1].strip().rstrip("%").strip())
+                    progress(0.05 + (pct / 100.0) * 0.85, f"识别中 {pct}%")
+                except (ValueError, IndexError):
+                    pass
+        proc.wait()
         if proc.returncode != 0:
             raise ASRError(
-                f"whisper.cpp failed ({proc.returncode}): {proc.stderr[-500:]}"
+                f"whisper.cpp failed ({proc.returncode}): {chr(10).join(err_tail)}"
             )
         if progress:
             progress(0.9, "parsing output")
@@ -125,17 +221,20 @@ class WhisperCppProvider(ASRProvider):
         json_path = Path(str(out_prefix) + ".json")
         if not json_path.is_file():
             raise ASRError("whisper.cpp did not produce JSON output")
-        data = json.loads(json_path.read_text(encoding="utf-8"))
+        # whisper-cli occasionally emits an invalid byte mid-JSON; replace
+        # instead of crashing the whole transcription at the final step.
+        data = json.loads(json_path.read_text(encoding="utf-8", errors="replace"))
         # whisper.cpp JSON: offsets are in milliseconds
         segments = [
             Segment(
                 start=float(item["offsets"]["from"]) / 1000.0,
                 end=float(item["offsets"]["to"]) / 1000.0,
-                text=str(item.get("text", "")).strip(),
+                text=str(item.get("text", "")).replace("\ufffd", "").strip(),
             )
             for item in data.get("transcription", [])
         ]
         shutil.rmtree(out_dir, ignore_errors=True)
         if progress:
-            progress(1.0, f"{len(segments)} segments")
-        return Transcript(language=language, segments=segments)
+            progress(1.0, f"{len(segments)} segments ({lang})")
+        segments = _collapse_repeats(segments)
+        return Transcript(language=lang if lang != "auto" else None, segments=segments)

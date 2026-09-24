@@ -36,6 +36,7 @@ _WCPP_FILES = {
     "ggml-base": ["ggml-base.bin"],
     "ggml-small": ["ggml-small.bin"],
     "ggml-large-v3-turbo-q5_0": ["ggml-large-v3-turbo-q5_0.bin"],
+    "ggml-large-v2": ["ggml-large-v2.bin"],
 }
 _WCPP_SOURCES = [("hf-mirror", "ggerganov/whisper.cpp")]
 
@@ -56,6 +57,8 @@ CATALOG: Dict[str, Dict[str, Any]] = {
                            "sources": [_ms("mlx-community/whisper-large-v3-turbo"), _hfm("mlx-community/whisper-large-v3-turbo")]},
     "large-v3-turbo-q4":  {"backend": "mlx", "dl_size_mb": 464, "files": _MLX_FILES,
                            "sources": [_ms("mlx-community/whisper-large-v3-turbo-4bit"), _hfm("mlx-community/whisper-large-v3-turbo-q4")]},
+    "large-v2":          {"backend": "mlx", "dl_size_mb": 2900, "files": _MLX_FILES,
+                           "sources": [_ms("mlx-community/whisper-large-v2-mlx"), _hfm("mlx-community/whisper-large-v2-mlx")]},
     "faster-whisper-tiny":     {"backend": "ctranslate2", "dl_size_mb": 78, "files": _CT2_FILES,
                                 "sources": [_ms("Systran/faster-whisper-tiny"), _hfm("Systran/faster-whisper-tiny")]},
     "faster-whisper-base":     {"backend": "ctranslate2", "dl_size_mb": 148, "files": _CT2_FILES,
@@ -71,12 +74,15 @@ CATALOG: Dict[str, Dict[str, Any]] = {
     "faster-whisper-large-v3-turbo": {"backend": "ctranslate2", "dl_size_mb": 1620, "files": _CT2_FILES,
                                 "sources": [_ms("mobiuslabsgmbh/faster-whisper-large-v3-turbo"),
                                             _hfm("mobiuslabsgmbh/faster-whisper-large-v3-turbo")]},
+    "faster-whisper-large-v2":  {"backend": "ctranslate2", "dl_size_mb": 3092, "files": _CT2_FILES,
+                                 "sources": [_ms("Systran/faster-whisper-large-v2"), _hfm("Systran/faster-whisper-large-v2")]},
     # whisper.cpp ggml models (AMD/Intel Vulkan backend; also runs on any CPU)
     "ggml-tiny":      {"backend": "whisper.cpp", "dl_size_mb": 75, "files": _WCPP_FILES["ggml-tiny"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-base":      {"backend": "whisper.cpp", "dl_size_mb": 142, "files": _WCPP_FILES["ggml-base"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-small":     {"backend": "whisper.cpp", "dl_size_mb": 466, "files": _WCPP_FILES["ggml-small"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-medium":    {"backend": "whisper.cpp", "dl_size_mb": 1533, "files": ["ggml-medium.bin"], "sources": _WCPP_SOURCES, "skip_tree": True},
     "ggml-large-v3-turbo-q5_0": {"backend": "whisper.cpp", "dl_size_mb": 570, "files": _WCPP_FILES["ggml-large-v3-turbo-q5_0"], "sources": _WCPP_SOURCES, "skip_tree": True},
+    "ggml-large-v2":    {"backend": "whisper.cpp", "dl_size_mb": 2919, "files": _WCPP_FILES["ggml-large-v2"], "sources": _WCPP_SOURCES, "skip_tree": True},
     # A卡 (AMD/Intel) Windows 专用：DomoticX 预编译 whisper.cpp Vulkan 构建
     # （https://github.com/DomoticX/whisper.cpp-windows-vulkan，仅 win32-x86_64）
     "whispercpp-vulkan-win64": {"backend": "whisper.cpp", "dl_size_mb": 18, "files": ["whisper-cli.exe"],
