@@ -56,6 +56,7 @@ class Job:
     transcript: Optional[Transcript] = None
     translations: Optional[List[str]] = None
     cancel_requested: bool = False
+    paused: bool = False
 
     def out(self) -> dict:
         return {
@@ -66,6 +67,7 @@ class Job:
             "target_language": self.target_language,
             "steps": {k: {"status": v.status, "progress": v.progress, "detail": v.detail}
                       for k, v in self.steps.items()},
+            "paused": self.paused,
             "error": self.error,
             "artifacts": self.artifacts,
             "backend": self.backend,
@@ -167,7 +169,7 @@ class JobManager:
         state["translation_options"] = job.translation_options
         state["export_options"] = job.export_options
         path = self.job_dir(job.id) / "job.json"
-        path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+        path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     async def _set_step(self, job: Job, loop, name: str, status: Optional[str] = None,
                         progress: Optional[float] = None, detail: Optional[str] = None) -> None:
@@ -249,7 +251,7 @@ class JobManager:
                 raise asyncio.CancelledError
             job.transcript = transcript
             tpath = job_dir / "transcript.json"
-            tpath.write_text(json.dumps(transcript.to_dict(), ensure_ascii=False, indent=2))
+            tpath.write_text(json.dumps(transcript.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
             job.artifacts["transcript"] = str(tpath)
             await self._set_step(job, loop, "asr", "done",
                                  detail=f"{len(transcript.segments)} segments "
@@ -267,6 +269,11 @@ class JobManager:
 
                 def tr_progress(p: float, detail: str) -> None:
                     self._raise_if_cancelled(job)      # 批次间响应「停止」
+                    while job.paused:                  # 批次间响应「暂停」
+                        job.steps["translate"].detail = "[已暂停] " + detail
+                        self._pub_threadsafe(loop, job)
+                        time.sleep(0.5)
+                        self._raise_if_cancelled(job)
                     job.steps["translate"].progress = p
                     job.steps["translate"].detail = detail
                     self._pub_threadsafe(loop, job)
@@ -295,7 +302,9 @@ class JobManager:
         except Exception as e:  # noqa: BLE001
             log.exception("job %s failed", job.id)
             job.status = "failed"
-            job.error = f"{type(e).__name__}: {e}"
+            import traceback as _tb
+            stack_tail = "\n".join(_tb.format_exc().splitlines()[-8:])
+            job.error = f"{type(e).__name__}: {e}\n{stack_tail}"
             # 把当时还在 running 的步骤一并标成 failed。
             # 否则它会永远停在 running，界面上同时出现「任务失败」和
             # 「语音识别·running 5%」两个互相矛盾的状态。

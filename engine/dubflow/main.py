@@ -296,6 +296,26 @@ async def cancel_job(job_id: str) -> dict:
     return {"ok": True}
 
 
+@app.post("/jobs/{job_id}/pause")
+async def pause_job(job_id: str) -> dict:
+    job = manager.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status != "running":
+        raise HTTPException(status_code=409, detail="仅运行中的任务可暂停")
+    job.paused = True
+    return {"ok": True, "paused": True}
+
+
+@app.post("/jobs/{job_id}/resume")
+async def resume_job(job_id: str) -> dict:
+    job = manager.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    job.paused = False
+    return {"ok": True, "paused": False}
+
+
 @app.delete("/jobs/{job_id}")
 async def delete_job(job_id: str) -> dict:
     job = manager.get(job_id)
