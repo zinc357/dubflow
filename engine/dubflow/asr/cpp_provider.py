@@ -82,6 +82,28 @@ def _filter_hallucinations(segments):
     return collapsed
 
 
+def _is_nonverbal(text: str) -> bool:
+    """Moans/gasps transcribed as long single-char runs (あああああ...).
+
+    Two signals:
+    - a run of >=5 identical characters (ああああああ)
+    - <=2 distinct characters stretched over >=6 total (あああいいい)
+    Normal speech like はいはい (4 chars) stays untouched.
+    """
+    t = _norm_text(text)
+    if not t:
+        return False
+    if re.search(r"(.)\1{4,}", t):
+        return True
+    if len(t) >= 6 and len(set(t)) <= 2:
+        return True
+    return False
+
+
+def _drop_nonverbal(segments):
+    return [s for s in segments if not _is_nonverbal(s.text)]
+
+
 def _collapse_repeats(segments):
     """Merge runs of consecutive identical texts into one segment.
 
@@ -236,5 +258,6 @@ class WhisperCppProvider(ASRProvider):
         shutil.rmtree(out_dir, ignore_errors=True)
         if progress:
             progress(1.0, f"{len(segments)} segments ({lang})")
+        segments = _drop_nonverbal(segments)
         segments = _collapse_repeats(segments)
         return Transcript(language=lang if lang != "auto" else None, segments=segments)
